@@ -7,6 +7,7 @@ from gi.repository import Gdk, Gio, GLib, Gtk
 
 from . import archive
 from .columns import describe
+from .fileops import templates
 from .store import COLORS
 
 
@@ -331,9 +332,21 @@ def build_menu(win, entry, entries):
         if not read_only:
             _item(menu, f"Cut{' ' + what(targets) if len(targets) > 1 else ''}", lambda: ops.copy(cut=True),
                   "edit-cut-symbolic", Gdk.KEY_x, ctrl)
+    if targets and not read_only:
+        _item(menu, f"Duplicate{' ' + what(targets) if len(targets) > 1 else ''}", ops.duplicate,
+              "edit-copy-symbolic", Gdk.KEY_D, ctrl | shift)
+        _item(menu, "Make Link" + ("s" if len(targets) > 1 else ""), ops.make_links, "insert-link-symbolic")
     if not read_only:
         _item(menu, "Paste Here", ops.paste, "edit-paste-symbolic", Gdk.KEY_v, ctrl)
+        _item(menu, "Paste as Link", ops.paste_links, "insert-link-symbolic", Gdk.KEY_V, ctrl | shift)
         _item(menu, "New Folder…", ops.new_folder, "folder-new-symbolic", Gdk.KEY_N, ctrl | shift)
+        _item(menu, "New File…", ops.new_file, "document-new-symbolic", Gdk.KEY_n, ctrl)
+        found = templates()
+        if found:
+            new_from = _submenu(menu, "New From Template", "document-new-symbolic")
+            for name, path in found:
+                _item(new_from, name, lambda p=path: ops.new_file(p), "folder-symbolic" if os.path.isdir(path)
+                      else "text-x-generic-symbolic")
     if targets and not read_only:
         _item(menu, "Move to Trash", ops.trash, "user-trash-symbolic", Gdk.KEY_Delete)
     if targets and not ops.in_archive():

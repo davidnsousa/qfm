@@ -1,5 +1,5 @@
-"""File operations: new folder, rename, copy / cut / paste, move to trash, delete, compress,
-extract. Questions go to the prompt bar (win.prompt); copies, moves, deletes and archive work
+"""File operations: new folder or file (from ~/Templates too), rename (several at once too),
+copy / cut / paste, duplicate, links, move to trash, delete, compress, extract. Questions go to the prompt bar (win.prompt); copies, moves, deletes and archive work
 run in a worker thread; the columns refresh through their file monitors."""
 import os
 import shutil
@@ -22,6 +22,33 @@ def unique_name(folder, name, is_dir):
     while os.path.lexists(os.path.join(folder, f"{stem} ({n}){ext}")):
         n += 1
     return f"{stem} ({n}){ext}"
+
+
+def templates_dir():
+    """The templates folder (XDG Templates, else ~/Templates), or None."""
+    folder = GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_TEMPLATES)
+    if not folder or os.path.realpath(folder) == os.path.realpath(os.path.expanduser("~")):
+        folder = os.path.expanduser("~/Templates")
+    return folder if os.path.isdir(folder) else None
+
+
+def templates():
+    """[(name, path)] of what's in the templates folder, sorted."""
+    folder = templates_dir()
+    try:
+        names = sorted((n for n in os.listdir(folder) if not n.startswith(".")), key=str.casefold) if folder else []
+    except OSError:
+        names = []
+    return [(n, os.path.join(folder, n)) for n in names]
+
+
+def copy_name(folder, name, is_dir, word):
+    """A free name for a copy or link of name in folder: "report (copy).txt", "report (copy 2).txt"…"""
+    stem, ext = (name, "") if is_dir else os.path.splitext(name)
+    candidate, n = f"{stem} ({word}){ext}", 2
+    while os.path.lexists(os.path.join(folder, candidate)):
+        candidate, n = f"{stem} ({word} {n}){ext}", n + 1
+    return candidate
 
 
 def name_error(name):
@@ -151,6 +178,105 @@ class FileOps:
             self._record(f"new folder {name}", lambda: os.rmdir(created))   # (only while it's empty)
 
         self.win.prompt.ask_text("New folder:", unique_name(dest, "New Folder", True), create, "Create")
+
+    def new_file(self, template=None):
+        """An empty file, or a copy of template (a path in the templates folder), named by the user."""
+        column = self._column()
+        if column is None or not self._writable():
+            return
+        dest = column.path
+        initial = os.path.basename(template) if template else "New File"
+        is_dir = bool(template) and os.path.isdir(template)
+
+        def create(name):
+            if name_error(name):
+                return name_error(name)
+            path = os.path.join(dest, name)
+            if os.path.lexists(path):
+                return f"{name} already exists"
+            try:
+                if template:
+                    copy_item(template, path)
+                else:
+                    open(path, "x").close()
+            except OSError as err:
+                return f"Could not create it: {err.strerror}"
+            self._select_in(dest, [name])
+            self.win.flash(f"Created {name}")
+            self._record_created(f"new {'file' if not is_dir else 'folder'} {name}", dest, [name])
+
+        stem = initial if is_dir else os.path.splitext(initial)[0]
+        name = unique_name(dest, initial, is_dir)
+        self.win.prompt.ask_text("New file:" if not template else f"New from “{initial}”:", name, create,
+                                 "Create", select=(0, len(stem) if name == initial else -1))
+
+    def duplicate(self):
+        """A copy of each selected item next to it ("name (copy).ext")."""
+        targets = self.win.targets()
+        if not targets:
+            return self.win.flash("Select something to duplicate", error=True)
+        if not self._writable():
+            return
+        folder = os.path.dirname(targets[0].path)
+        pairs, taken = [], set()
+        for e in targets:
+            name = copy_name(folder, e.name, e.is_dir and not e.symlink, "copy")
+            while name in taken:      # (two the same in one go: "a (copy).txt", "a (copy 2).txt")
+                name = copy_name(folder, name, e.is_dir, "copy")
+            taken.add(name)
+            pairs.append((e.path, name))
+
+        def work():
+            for source, name in pairs:
+                copy_item(source, os.path.join(folder, name))
+
+        def done(error):
+            names = [n for _, n in pairs if os.path.lexists(os.path.join(folder, n))]
+            self._select_in(folder, names)
+            self._record_created(f"duplicating {self._what(targets)}", folder, names)
+            self.win.flash(f"Could not duplicate: {error}" if error else f"Duplicated {self._what(targets)}",
+                           error=bool(error))
+            return False
+
+        in_background(self.win, f"Duplicating {self._what(targets)}…", work, done)
+
+    def make_links(self, sources=None, dest=None):
+        """Symbolic links to sources (default: the selection) in dest (default: next to them)."""
+        if sources is None:
+            targets = self.win.targets()
+            if not targets:
+                return self.win.flash("Select something to link to", error=True)
+            sources = [e.path for e in targets]
+        if not self._writable():
+            return
+        made = []
+        for source in sources:
+            folder = dest or os.path.dirname(source)
+            name = os.path.basename(source)
+            if dest is None or os.path.lexists(os.path.join(folder, name)):
+                name = copy_name(folder, name, os.path.isdir(source), "link")
+            try:
+                os.symlink(source, os.path.join(folder, name))
+            except OSError as err:
+                return self.win.flash(f"Could not make a link: {err.strerror}", error=True)
+            made.append((folder, name))
+        if made:
+            self._select_in(made[0][0], [n for _, n in made])
+            links = [os.path.join(f, n) for f, n in made]
+            self._record("making links", lambda: [os.unlink(p) for p in links if os.path.islink(p)])
+            what = made[0][1] if len(made) == 1 else f"{len(made)} links"
+            self.win.flash(f"Made {what}")
+
+    def paste_links(self):
+        """Ctrl+Shift+V: links (not copies) to what was copied, in the focused folder."""
+        column = self._column()
+        if column is None or not self._writable():
+            return
+        clip = self.clip if self.clip and self.clip[0] != "extract" else system_clipboard_files()
+        sources = [p for p in (clip[1] if clip else []) if os.path.lexists(p)]
+        if not sources:
+            return self.win.flash("Nothing to link to - copy (Ctrl+C) something first", error=True)
+        self.make_links(sources, column.path)
 
     def rename(self):
         targets, column = self.win.targets(), self._column()

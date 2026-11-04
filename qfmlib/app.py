@@ -1017,6 +1017,8 @@ class Window(Gtk.ApplicationWindow):
                 self.view.reload()
             elif lower == Gdk.KEY_z:
                 self.fileops.undo()
+            elif lower == Gdk.KEY_n and self._in_columns():
+                self.fileops.new_file()
             elif lower == Gdk.KEY_p and self.preview.media_active:
                 self.preview.player.toggle()
             elif lower == Gdk.KEY_m and self.preview.media_active:
@@ -1044,6 +1046,10 @@ class Window(Gtk.ApplicationWindow):
                 actions.copy_path(self, self.chosen())
             elif lower == Gdk.KEY_n and self._in_columns():
                 self.fileops.new_folder()
+            elif lower == Gdk.KEY_d and self._in_columns():
+                self.fileops.duplicate()
+            elif lower == Gdk.KEY_v and self._in_columns():
+                self.fileops.paste_links()
             else:
                 return False
             return True
