@@ -147,9 +147,57 @@ def run_in_terminal(app, paths):
         launcher.spawnv(terminal + command)
 
 
+def program_kind(entry):
+    """"script" (#!…) or "binary" (a Linux program, an AppImage) for a file you may run; else None.
+    The file's start decides, not just its run bit (USB sticks often set it on everything)."""
+    if entry.is_dir or entry.archive is not None or not os.access(entry.path, os.X_OK):
+        return None
+    try:
+        with open(entry.path, "rb") as f:
+            start = f.read(4)
+    except OSError:
+        return None
+    return "binary" if start == b"\x7fELF" else "script" if start[:2] == b"#!" else None
+
+
+def run_program(win, entry, terminal=False):
+    """Run entry in its folder: by itself, or in a terminal that stays open when it ends."""
+    folder = os.path.dirname(entry.path)
+    if terminal:
+        found = find_terminal()
+        if found is None:
+            return win.flash("No terminal found - install one, or set $TERMINAL", error=True)
+        wait = '"$0"; printf "\\n[finished: %s] Press Enter to close" "$?"; read -r _'
+        argv = found[0] + found[1] + ["sh", "-c", wait, entry.path]
+    else:
+        argv = [entry.path]
+    launcher = Gio.SubprocessLauncher.new(Gio.SubprocessFlags.NONE)
+    launcher.set_cwd(folder)
+    try:
+        launcher.spawnv(argv)
+    except GLib.Error as err:
+        return win.flash(f"Could not run {entry.display}: {err.message}", error=True)
+    win.flash(f"Running {entry.display}" + (" in a terminal" if terminal else ""))
+    win.close_after_open()
+
+
+def ask_run(win, entry, kind):
+    """Enter on a program or script: run it (by itself or in a terminal), or open it (a script, in its editor)."""
+    app = Gio.AppInfo.get_default_for_type(content_type(entry), False)
+    run = ("r", "Run", lambda: run_program(win, entry))
+    in_terminal = ("t", "Run in Terminal", lambda: run_program(win, entry, terminal=True))
+    choices = [in_terminal, run] if kind == "script" else [run, in_terminal]
+    if app is not None:
+        choices.append(("o", f"Open with {app.get_display_name()}", lambda: launch(win, app, [entry])))
+    win.prompt.choose(f"{entry.display} is a {'script' if kind == 'script' else 'program'}:", choices)
+
+
 def open_default(win, entries):
     """Open each file with its default app (one launch per app). Folders are skipped when
-    several items are selected; one folder is entered instead (see MillerView.activate)."""
+    several items are selected; one folder is entered instead (see MillerView.activate).
+    One program or script: asks whether to run it (ask_run)."""
+    if len(entries) == 1 and program_kind(entries[0]):
+        return ask_run(win, entries[0], program_kind(entries[0]))
     files = [e for e in entries if not e.is_dir] if len(entries) > 1 else entries
     groups, missing = {}, []
     for e in files:
@@ -293,6 +341,9 @@ def build_menu(win, entry, entries):
     elif default:
         _item(menu, f"Open with {default.get_display_name()}", lambda: launch(win, default, entries),
               "document-open-symbolic", Gdk.KEY_Return)
+    if not several and program_kind(entry):
+        _item(menu, "Run", lambda: run_program(win, entry), "system-run-symbolic")
+        _item(menu, "Run in Terminal", lambda: run_program(win, entry, terminal=True), "utilities-terminal-symbolic")
     if not several and entry.container:
         _item(menu, "Look Inside", win.go_into_selection, "package-x-generic-symbolic", Gdk.KEY_Right)
     open_with = _submenu(menu, "Open With", "system-run-symbolic")
@@ -428,6 +479,18 @@ class AppRow(Gtk.Box):
             return
         default, apps = apps_for(types)
         win, label = self.win, what(entries)
+        if len(entries) == 1 and program_kind(entries[0]):
+            for icon, tip, terminal in (("system-run-symbolic", "Run it", False),
+                                        ("utilities-terminal-symbolic", "Run it in a terminal", True)):
+                button = Gtk.Button(relief=Gtk.ReliefStyle.NONE, can_focus=False, tooltip_text=tip)
+                image = Gtk.Image.new_from_icon_name(icon, Gtk.IconSize.BUTTON)
+                image.set_pixel_size(self.SIZE)
+                button.add(image)
+                button.get_style_context().add_class("qfm-app")
+                button.connect("clicked", lambda _, t=terminal: run_program(win, entries[0], terminal=t))
+                self.pack_start(button, False, False, 0)
+            self.pack_start(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL, margin_start=2, margin_end=2),
+                            False, False, 0)
         for i, app in enumerate(apps + [None]):
             button = Gtk.Button(relief=Gtk.ReliefStyle.NONE, can_focus=False)
             number = 0 if app is None else i + 1     # Alt+number opens with it
