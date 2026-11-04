@@ -80,7 +80,7 @@ SHORTCUTS = [
         ("Ctrl+Enter", "take the folder you've moved to in the columns (Extract To)"),
     ]),
     ("Window", [
-        ("Esc", "cancel a question / clear the filter / close a side panel / cancel copies; "
+        ("Esc", "cancel a question / clear the filter / close a side panel / cancel copies / keep one of several selected; "
                 "else quit (as a quick dialog - ⚙ Options)"),
         ("Ctrl+Q / Ctrl+W", "quit"),
     ]),

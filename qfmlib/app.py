@@ -11,7 +11,7 @@ from gi.repository import Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
 
 from . import actions, archive, fm1, media, style, trash  # noqa: E402
 from .fileops import FileOps  # noqa: E402
-from .columns import HOME, Entry, MillerView, describe, git_branch, human_date, human_size, short_path  # noqa: E402
+from .columns import APPLICATIONS, HOME, Entry, MillerView, describe, git_branch, human_date, human_size, short_path  # noqa: E402
 from .preview import Preview  # noqa: E402
 from .promptbar import ProgressArea, PromptBar, complete_folder, matches_hint  # noqa: E402
 from .keyspane import KeysPane  # noqa: E402
@@ -550,6 +550,7 @@ class Window(Gtk.ApplicationWindow):
         for row in self.sidebar.get_children():
             row.destroy()
         self._sidebar_row("Home", HOME, "user-home-symbolic", "places")
+        self._sidebar_row("Applications", APPLICATIONS, "view-app-grid-symbolic", "places")
         self._sidebar_row("Computer", "/", "drive-harddisk-symbolic", "places")
         self._sidebar_row("Trash", trash.FILES,
                           "user-trash-symbolic" if trash.is_empty() else "user-trash-full-symbolic", "places")
@@ -1169,6 +1170,10 @@ class Window(Gtk.ApplicationWindow):
                 self.filter_entry.set_text("")
                 self.view.set_filter("")
                 self.hide_filter()
+            elif self.view.focused_column is not None and len(self.view.focused_column.marked) > 1:
+                column = self.view.focused_column       # several selected: keep just the one at the cursor
+                column.select_names([column.selected.name])
+                self.view.selected(column, column.selected)
             elif self.options["window_mode"] == "dialog":
                 self.close()
             else:

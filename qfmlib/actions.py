@@ -181,6 +181,22 @@ def run_program(win, entry, terminal=False):
     win.close_after_open()
 
 
+def start_app(win, app):
+    """An app from the Applications folder (its .desktop file), started with nothing to open."""
+    try:
+        try:
+            app.launch([], win.get_display().get_app_launch_context())
+        except GLib.Error:
+            if not app.get_boolean("Terminal"):
+                raise
+            run_in_terminal(app, [])          # (a terminal app GLib can't start, like for files)
+    except (GLib.Error, OSError) as err:
+        return win.flash(f"Could not start {app.get_display_name()}: {getattr(err, 'message', None) or err}",
+                         error=True)
+    win.flash(f"Started {app.get_display_name()}")
+    win.close_after_open()
+
+
 def ask_run(win, entry, kind):
     """Enter on a program or script: run it (by itself or in a terminal), or open it (a script, in its editor)."""
     app = Gio.AppInfo.get_default_for_type(content_type(entry), False)
@@ -196,6 +212,8 @@ def open_default(win, entries):
     """Open each file with its default app (one launch per app). Folders are skipped when
     several items are selected; one folder is entered instead (see MillerView.activate).
     One program or script: asks whether to run it (ask_run)."""
+    if len(entries) == 1 and entries[0].app is not None:
+        return start_app(win, entries[0].app)
     if len(entries) == 1 and program_kind(entries[0]):
         return ask_run(win, entries[0], program_kind(entries[0]))
     files = [e for e in entries if not e.is_dir] if len(entries) > 1 else entries
@@ -396,8 +414,8 @@ def build_menu(win, entry, entries):
         new_from = _submenu(menu, "New From Template", "document-new-symbolic")
         for name, source in templates.available():
             is_dir = isinstance(source, str) and os.path.isdir(source)
-            _item(new_from, name, lambda t=(name, source): ops.new_file(t),
-                  "folder-symbolic" if is_dir else "text-x-generic-symbolic")
+            ct = "inode/directory" if is_dir else Gio.content_type_guess(name, None)[0]
+            _item(new_from, name, lambda t=(name, source): ops.new_file(t), gicon=Gio.content_type_get_icon(ct))
         new_from.append(Gtk.SeparatorMenuItem())
         if os.path.isdir(templates.folder()):
             _item(new_from, "Open Templates Folder", lambda: win.go_to(templates.folder()), "folder-open-symbolic")

@@ -140,7 +140,19 @@ class Icons:
         return pixbuf
 
     def for_entry(self, entry, colors, size=16):
+        if entry.app is not None and entry.app.get_icon() is not None:
+            pixbuf = self.get_gicon(entry.app.get_icon(), size)
+            if pixbuf is not None:
+                return pixbuf
         return self.get(entry.content_type, size, colors.get(entry.path) if entry.is_dir else None, entry.repo)
+
+    def get_gicon(self, gicon, size=16):
+        """An icon (an app's) at size, or None if the theme hasn't it."""
+        key = ("gicon", gicon.to_string(), size)
+        if key not in self.cache:
+            info = self.theme.lookup_by_gicon_for_scale(gicon, size, self.scale, Gtk.IconLookupFlags.FORCE_SIZE)
+            self.cache[key] = self._load(info)
+        return self.cache[key]
 
     def surface(self, pixbuf):
         """pixbuf (from get()) as a cairo surface drawn at its logical size."""

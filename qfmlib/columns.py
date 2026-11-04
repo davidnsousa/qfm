@@ -50,11 +50,12 @@ class Entry:
     """One file or folder."""
     __slots__ = ("name", "display", "path", "is_dir", "size", "modified", "created",
                  "content_type", "hidden", "symlink", "key",
-                 "archive", "inner", "browsable", "container", "repo")
+                 "archive", "inner", "browsable", "container", "repo", "app")
     # archive/inner: for something inside an archive, the archive file and its member path
     # (else None). browsable: opens as a column - folders, archive files and containers.
     # container: a file that's an archive inside (a .docx, .epub…): → browses it, Enter opens it,
-    # selecting it doesn't open its column. repo: a folder
+    # selecting it doesn't open its column. app: in an applications folder, the app a .desktop
+    # file is (Gio.DesktopAppInfo: shown by its name and icon, Enter starts it), else None. repo: a folder
     # that's a git repository (set after listing, see Column._check_repos)
 
     @classmethod
@@ -77,6 +78,16 @@ class Entry:
         e.container = not e.is_dir and archive.is_container(e.name)
         e.browsable = e.is_dir or e.container or archive.is_archive(e.name)
         e.repo = False
+        e.app = None
+        if folder in APP_FOLDERS and e.name.endswith(".desktop") and not e.is_dir:
+            try:
+                e.app = Gio.DesktopAppInfo.new_from_filename(e.path)
+            except TypeError:        # (not a valid desktop file: new_from_filename gave None)
+                e.app = None
+            if e.app is not None:
+                e.display = e.app.get_display_name()
+                e.key = GLib.utf8_collate_key_for_filename(e.display, -1)
+                e.hidden = e.hidden or not e.app.should_show()     # helpers that aren't in menus
         return e
 
     @classmethod
@@ -95,6 +106,7 @@ class Entry:
         e.archive, e.inner = archive_path, m.inner
         e.browsable = m.is_dir      # (archives inside archives aren't browsed)
         e.container = False
+        e.app = None
         e.repo = False
         return e
 
@@ -135,6 +147,13 @@ def git_branch(path):
     if head.startswith("ref: "):
         return head[5:].removeprefix("refs/heads/")
     return head[:7] or None
+
+
+# where apps' .desktop files are: listed by app name and icon, Enter starts the app
+APP_FOLDERS = {os.path.join(d, "applications") for d in
+               [GLib.get_user_data_dir(), *GLib.get_system_data_dirs()]}
+APPLICATIONS = next((p for p in ("/usr/share/applications", *sorted(APP_FOLDERS)) if os.path.isdir(p)),
+                    "/usr/share/applications")
 
 
 def arrow_for(entry):
