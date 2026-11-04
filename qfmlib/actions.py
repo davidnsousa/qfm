@@ -117,6 +117,7 @@ def open_terminal(win, folder):
     except GLib.Error as err:
         return win.flash(f"Could not open a terminal: {err.message}", error=True)
     win.flash(f"Opened a terminal in {folder}")
+    win.close_after_open()
 
 
 def run_in_terminal(app, paths):
