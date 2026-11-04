@@ -9,7 +9,7 @@ from urllib.parse import unquote, urlparse
 
 from gi.repository import Gdk, Gio, GLib, Gtk
 
-from . import archive, clipboard, trash as trashcan
+from . import archive, clipboard, templates, trash as trashcan
 from .transfer import Job
 from .columns import short_path
 
@@ -23,24 +23,6 @@ def unique_name(folder, name, is_dir):
     while os.path.lexists(os.path.join(folder, f"{stem} ({n}){ext}")):
         n += 1
     return f"{stem} ({n}){ext}"
-
-
-def templates_dir():
-    """The templates folder (XDG Templates, else ~/Templates), or None."""
-    folder = GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_TEMPLATES)
-    if not folder or os.path.realpath(folder) == os.path.realpath(os.path.expanduser("~")):
-        folder = os.path.expanduser("~/Templates")
-    return folder if os.path.isdir(folder) else None
-
-
-def templates():
-    """[(name, path)] of what's in the templates folder, sorted."""
-    folder = templates_dir()
-    try:
-        names = sorted((n for n in os.listdir(folder) if not n.startswith(".")), key=str.casefold) if folder else []
-    except OSError:
-        names = []
-    return [(n, os.path.join(folder, n)) for n in names]
 
 
 def copy_name(folder, name, is_dir, word):
@@ -196,13 +178,15 @@ class FileOps:
         self.win.prompt.ask_text("New folder:", unique_name(dest, "New Folder", True), create, "Create")
 
     def new_file(self, template=None):
-        """An empty file, or a copy of template (a path in the templates folder), named by the user."""
+        """An empty file, or one from template - (name, source) from templates.available(): a path
+        in the templates folder (copied) or a built-in one's maker - named by the user."""
         column = self._column()
         if column is None or not self._writable():
             return
         dest = column.path
-        initial = os.path.basename(template) if template else "New File"
-        is_dir = bool(template) and os.path.isdir(template)
+        initial = template[0] if template else "New File"
+        source = template[1] if template else None
+        is_dir = isinstance(source, str) and os.path.isdir(source)
 
         def create(name):
             if name_error(name):
@@ -211,8 +195,10 @@ class FileOps:
             if os.path.lexists(path):
                 return f"{name} already exists"
             try:
-                if template:
-                    copy_item(template, path)
+                if isinstance(source, str):
+                    copy_item(source, path)
+                elif source:
+                    source(path)
                 else:
                     open(path, "x").close()
             except OSError as err:
@@ -225,6 +211,15 @@ class FileOps:
         name = unique_name(dest, initial, is_dir)
         self.win.prompt.ask_text("New file:" if not template else f"New from “{initial}”:", name, create,
                                  "Create", select=(0, len(stem) if name == initial else -1))
+
+    def customize_templates(self):
+        """Create the templates folder with qfm's templates in it, to edit, and go there."""
+        try:
+            where = templates.customize()
+        except OSError as err:
+            return self.win.flash(f"Could not create the templates: {err.strerror or err}", error=True)
+        self.win.go_to(where)
+        self.win.flash("Your templates: edit, delete or add files here - New From Template lists them")
 
     def duplicate(self):
         """A copy of each selected item next to it ("name (copy).ext")."""

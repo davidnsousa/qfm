@@ -7,7 +7,7 @@ from gi.repository import Gdk, Gio, GLib, Gtk
 
 from . import archive
 from .columns import describe
-from .fileops import templates
+from . import templates
 from .store import COLORS
 
 
@@ -393,12 +393,16 @@ def build_menu(win, entry, entries):
         _item(menu, "Paste as Link", ops.paste_links, "insert-link-symbolic", Gdk.KEY_V, ctrl | shift)
         _item(menu, "New Folder…", ops.new_folder, "folder-new-symbolic", Gdk.KEY_N, ctrl | shift)
         _item(menu, "New File…", ops.new_file, "document-new-symbolic", Gdk.KEY_n, ctrl)
-        found = templates()
-        if found:
-            new_from = _submenu(menu, "New From Template", "document-new-symbolic")
-            for name, path in found:
-                _item(new_from, name, lambda p=path: ops.new_file(p), "folder-symbolic" if os.path.isdir(path)
-                      else "text-x-generic-symbolic")
+        new_from = _submenu(menu, "New From Template", "document-new-symbolic")
+        for name, source in templates.available():
+            is_dir = isinstance(source, str) and os.path.isdir(source)
+            _item(new_from, name, lambda t=(name, source): ops.new_file(t),
+                  "folder-symbolic" if is_dir else "text-x-generic-symbolic")
+        new_from.append(Gtk.SeparatorMenuItem())
+        if os.path.isdir(templates.folder()):
+            _item(new_from, "Open Templates Folder", lambda: win.go_to(templates.folder()), "folder-open-symbolic")
+        else:
+            _item(new_from, "Customize Templates…", ops.customize_templates, "document-edit-symbolic")
     if targets and not read_only:
         _item(menu, "Move to Trash", ops.trash, "user-trash-symbolic", Gdk.KEY_Delete)
     if targets and not ops.in_archive():

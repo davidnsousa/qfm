@@ -21,7 +21,8 @@ A keyboard-driven file manager for Linux (GTK3) with Miller columns.
   of them. The menu has Compress, Extract Here and Extract To.
 - Files that are archives inside (Office and LibreOffice documents, EPUB, comic books, JAR,
   APK, wheels, 3MF…) open normally with Enter; → looks inside them.
-- New file (Ctrl+N, or from `~/Templates`), duplicate (Ctrl+Shift+D), symbolic links (Make
+- New file (Ctrl+N, or New From Template: text, Markdown, scripts, HTML, JSON, LibreOffice
+  and Word documents - or your own, once Customize Templates puts them in `~/Templates`), duplicate (Ctrl+Shift+D), symbolic links (Make
   Link, Ctrl+Shift+V pastes as links), and renaming several items at once (F2: find and
   replace, or a new name with numbers).
 - Alt+← and Alt+→ (or the mouse's back and forward buttons) go back and forward through the

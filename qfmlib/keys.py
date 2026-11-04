@@ -32,7 +32,7 @@ SHORTCUTS = [
         ("Ctrl+C / Ctrl+X / Ctrl+V", "copy / cut / paste into the current folder (other file managers too)"),
         ("Ctrl+Z", "undo the last rename, move, copy, trash, restore, new folder, compress or extract"),
         ("F2", "rename; with several selected: find / replace, or a new name with # (number) and * (old name)"),
-        ("Ctrl+N", "new file (the menu also has New From Template: what's in ~/Templates)"),
+        ("Ctrl+N", "new file (the menu also has New From Template: common files, or yours in ~/Templates)"),
         ("Ctrl+Shift+D", "duplicate: a copy next to it, “name (copy)”"),
         ("Ctrl+Shift+V", "paste as link: symbolic links to what was copied (the menu also has Make Link)"),
         ("Ctrl+Shift+N", "new folder"),
