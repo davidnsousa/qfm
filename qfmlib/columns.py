@@ -14,6 +14,8 @@ ATTRIBUTES = ",".join((
     "standard::is-symlink", "time::modified", "time::created", "time::changed",
 ))
 BATCH = 1000        # file infos per async enumeration step
+FOLDER_SIZE_SECONDS = 0.5   # time spent adding up one folder for the Size column ("+": more)
+FOLDER_SIZE_FRESH = 60      # seconds a folder's size is reused before it's added up again
 OPEN_DELAY = 90     # ms a folder must stay selected before its column opens
 COLUMN_WIDTH = 250
 DETAILS = {"type": 130, "size": 80, "modified": 125, "created": 125}   # optional columns: width
@@ -301,6 +303,7 @@ class Column(Gtk.Overlay):
                         e.repo = e.is_dir and e.path in known   # as before until checked again
                     self._loaded(entries)
                     self._check_repos(entries, cancellable)
+                    self._size_folders()
 
         def on_enumerator(gfile, result):
             try:
@@ -428,6 +431,7 @@ class Column(Gtk.Overlay):
 
     def close(self):
         """Stop loading and watching (the column is going away)."""
+        self._size_token = getattr(self, "_size_token", 0) + 1
         if self.cancellable:
             self.cancellable.cancel()
         if self.monitor:
@@ -443,6 +447,36 @@ class Column(Gtk.Overlay):
         for key, column in self.details.items():
             column.set_visible(key in shown)
         self.set_size_request(-1 if self.view.fit else column_width(self.view.options), -1)
+        self._size_folders()
+
+    def _size_folders(self):
+        """With the Size column shown: add up each folder's size in a thread (a moment each,
+        "+" if it had more), redrawing as they come. Reused from the view's cache for a minute."""
+        self._size_token = getattr(self, "_size_token", 0) + 1
+        if "size" not in self.view.options["details"] or self.archive is not None:
+            return
+        cache, now = self.view.folder_sizes, time.monotonic()
+        todo = [e.path for e in self.entries if e.is_dir and not e.symlink
+                and now - cache.get(e.path, (-FOLDER_SIZE_FRESH, ""))[0] >= FOLDER_SIZE_FRESH]
+        if not todo:
+            return
+        token = self._size_token
+        from .preview import folder_size      # (preview imports this module)
+
+        def work():
+            for path in todo:
+                if token != self._size_token:
+                    return
+                files, size, finished = folder_size([path], time.monotonic() + FOLDER_SIZE_SECONDS)
+                GLib.idle_add(done, path, human_size(size) + ("" if finished else "+"))
+
+        def done(path, text):
+            cache[path] = (time.monotonic(), text)
+            if token == self._size_token:
+                self.tree.queue_draw()
+            return False
+
+        threading.Thread(target=work, daemon=True).start()
 
     def refresh(self):
         """Fill the list from self.entries, with hidden files, filter and sort applied."""
@@ -495,7 +529,7 @@ class Column(Gtk.Overlay):
         if key == "type":
             text = describe(e.content_type)
         elif key == "size":
-            text = "" if e.is_dir else human_size(e.size)
+            text = self.view.folder_sizes.get(e.path, (0, ""))[1] if e.is_dir else human_size(e.size)
         else:
             text = human_date(e.modified if key == "modified" else e.created)
         cell.set_property("text", text)
@@ -695,6 +729,7 @@ class MillerView(Gtk.ScrolledWindow):
         self.options = window.store.options
         self.icons = window.icons
         self.columns = []
+        self.folder_sizes = {}    # folder path -> (when, "12.3 MB") for the Size column
         self.focus_index = 0
         self._focus_selected = False
         self._open_timer = 0
