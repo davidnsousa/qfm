@@ -148,8 +148,9 @@ def column_width(options):
     return COLUMN_WIDTH + sum(w for key, w in DETAILS.items() if key in options["details"])
 
 
-def sort_entries(items, field, descending):
-    """Folders first, then files, each sorted by field (natural name order breaks ties)."""
+def sort_entries(items, field, descending, folder_size=None):
+    """Folders first, then files, each sorted by field (natural name order breaks ties).
+    folder_size(entry): a folder's size in bytes (-1 if not known yet), for sorting by size."""
     dirs = [e for e in items if e.is_dir]
     files = [e for e in items if not e.is_dir]
     if field == "size":
@@ -160,7 +161,10 @@ def sort_entries(items, field, descending):
         key = lambda e: (os.path.splitext(e.name)[1].casefold(), e.key)
     else:
         key = lambda e: e.key
-    dirs.sort(key=key if field in ("name", "modified") else (lambda e: e.key), reverse=descending)
+    if field == "size" and folder_size:
+        dirs.sort(key=lambda e: (folder_size(e), e.key), reverse=descending)
+    else:
+        dirs.sort(key=key if field in ("name", "modified") else (lambda e: e.key), reverse=descending)
     files.sort(key=key, reverse=descending)
     return dirs + files
 
@@ -450,14 +454,16 @@ class Column(Gtk.Overlay):
         self._size_folders()
 
     def _size_folders(self):
-        """With the Size column shown: add up each folder's size in a thread (a moment each,
-        "+" if it had more), redrawing as they come. Reused from the view's cache for a minute."""
+        """With the Size column shown, or sorting by size: add up each folder's size in a thread
+        (a moment each, "+" if it had more), redrawing as they come - and when sorting by size,
+        sorting again once they're all known. Reused from the view's cache for a minute."""
         self._size_token = getattr(self, "_size_token", 0) + 1
-        if "size" not in self.view.options["details"] or self.archive is not None:
+        options = self.view.options
+        if ("size" not in options["details"] and options["sort"] != "size") or self.archive is not None:
             return
         cache, now = self.view.folder_sizes, time.monotonic()
         todo = [e.path for e in self.entries if e.is_dir and not e.symlink
-                and now - cache.get(e.path, (-FOLDER_SIZE_FRESH, ""))[0] >= FOLDER_SIZE_FRESH]
+                and now - cache.get(e.path, (-FOLDER_SIZE_FRESH, "", -1))[0] >= FOLDER_SIZE_FRESH]
         if not todo:
             return
         token = self._size_token
@@ -468,12 +474,18 @@ class Column(Gtk.Overlay):
                 if token != self._size_token:
                     return
                 files, size, finished = folder_size([path], time.monotonic() + FOLDER_SIZE_SECONDS)
-                GLib.idle_add(done, path, human_size(size) + ("" if finished else "+"))
+                GLib.idle_add(done, path, human_size(size) + ("" if finished else "+"), size)
+            GLib.idle_add(all_done)
 
-        def done(path, text):
-            cache[path] = (time.monotonic(), text)
+        def done(path, text, size):
+            cache[path] = (time.monotonic(), text, size)
             if token == self._size_token:
                 self.tree.queue_draw()
+            return False
+
+        def all_done():
+            if token == self._size_token and self.view.options["sort"] == "size":
+                self.refresh()       # (keeps the selection and scroll)
             return False
 
         threading.Thread(target=work, daemon=True).start()
@@ -487,7 +499,9 @@ class Column(Gtk.Overlay):
         if self.filter:
             needle = self.filter.casefold()
             items = [e for e in items if needle in e.display.casefold()]
-        self.visible = sort_entries(items, options["sort"], options["descending"])
+        sizes = self.view.folder_sizes
+        self.visible = sort_entries(items, options["sort"], options["descending"],
+                                    lambda e: sizes.get(e.path, (0, "", -1))[2])
 
         previous, previous_names = self.selected, [e.name for e in self.marked]
         scroll = self.tree.get_vadjustment().get_value()
@@ -529,7 +543,7 @@ class Column(Gtk.Overlay):
         if key == "type":
             text = describe(e.content_type)
         elif key == "size":
-            text = self.view.folder_sizes.get(e.path, (0, ""))[1] if e.is_dir else human_size(e.size)
+            text = self.view.folder_sizes.get(e.path, (0, "", -1))[1] if e.is_dir else human_size(e.size)
         else:
             text = human_date(e.modified if key == "modified" else e.created)
         cell.set_property("text", text)
@@ -729,7 +743,7 @@ class MillerView(Gtk.ScrolledWindow):
         self.options = window.store.options
         self.icons = window.icons
         self.columns = []
-        self.folder_sizes = {}    # folder path -> (when, "12.3 MB") for the Size column
+        self.folder_sizes = {}    # folder path -> (when, "12.3 MB", bytes) for the Size column and sorting
         self.focus_index = 0
         self._focus_selected = False
         self._open_timer = 0
