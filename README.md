@@ -18,6 +18,8 @@ A keyboard-driven file manager for Linux (GTK3) with Miller columns.
   Alt+1 to Alt+9, to open it with that app.
 - Archives (zip, tar, 7z, rar, iso) can be browsed like folders, and files can be copied out
   of them. The menu has Compress, Extract Here and Extract To.
+- Files that are archives inside (Office and LibreOffice documents, EPUB, comic books, JAR,
+  APK, wheels, 3MF…) open normally with Enter; → looks inside them.
 - Ctrl+Z undoes rename, move, copy, move to trash, restore, new folder, compress and extract.
 - Files can be copied and pasted between qfm and other file managers.
 - Optionally, qfm can be the default application for folders and for other applications'

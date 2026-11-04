@@ -43,6 +43,7 @@ SHORTCUTS = [
         ("a drive", "click to open (mounts it if needed); its ⏏ button ejects it"),
     ]),
     ("Archives", [
+        ("→ on a .docx, .epub, .jar… (faint ›)", "look inside it like an archive (Enter opens it as usual)"),
         ("→ / Enter on an archive", "browse it like a folder (read-only)"),
         ("Ctrl+C, then Ctrl+V in a folder", "extract what's selected inside it"),
         ("menu: Compress… / Extract Here / Extract To…", "make or unpack archives"),

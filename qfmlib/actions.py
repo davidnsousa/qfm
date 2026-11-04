@@ -292,6 +292,8 @@ def build_menu(win, entry, entries):
     elif default:
         _item(menu, f"Open with {default.get_display_name()}", lambda: launch(win, default, entries),
               "document-open-symbolic", Gdk.KEY_Return)
+    if not several and entry.container:
+        _item(menu, "Look Inside", win.go_into_selection, "package-x-generic-symbolic", Gdk.KEY_Right)
     open_with = _submenu(menu, "Open With", "system-run-symbolic")
     alt = Gdk.ModifierType.MOD1_MASK
     for i, app in enumerate(apps):

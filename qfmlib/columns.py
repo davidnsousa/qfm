@@ -48,9 +48,11 @@ class Entry:
     """One file or folder."""
     __slots__ = ("name", "display", "path", "is_dir", "size", "modified", "created",
                  "content_type", "hidden", "symlink", "key",
-                 "archive", "inner", "browsable", "repo")
+                 "archive", "inner", "browsable", "container", "repo")
     # archive/inner: for something inside an archive, the archive file and its member path
-    # (else None). browsable: opens as a column - folders, and archive files. repo: a folder
+    # (else None). browsable: opens as a column - folders, archive files and containers.
+    # container: a file that's an archive inside (a .docx, .epub…): → browses it, Enter opens it,
+    # selecting it doesn't open its column. repo: a folder
     # that's a git repository (set after listing, see Column._check_repos)
 
     @classmethod
@@ -70,7 +72,8 @@ class Entry:
         e.symlink = info.get_is_symlink()
         e.key = GLib.utf8_collate_key_for_filename(e.display, -1)
         e.archive = e.inner = None
-        e.browsable = e.is_dir or archive.is_archive(e.name)
+        e.container = not e.is_dir and archive.is_container(e.name)
+        e.browsable = e.is_dir or e.container or archive.is_archive(e.name)
         e.repo = False
         return e
 
@@ -89,6 +92,7 @@ class Entry:
         e.key = GLib.utf8_collate_key_for_filename(m.name, -1)
         e.archive, e.inner = archive_path, m.inner
         e.browsable = m.is_dir      # (archives inside archives aren't browsed)
+        e.container = False
         e.repo = False
         return e
 
@@ -129,6 +133,13 @@ def git_branch(path):
     if head.startswith("ref: "):
         return head[5:].removeprefix("refs/heads/")
     return head[:7] or None
+
+
+def arrow_for(entry):
+    """The row's › (markup): folders and archives open as a column; a container's is faint (→ only)."""
+    if entry.container:
+        return '<span alpha="35%">›</span>'
+    return "›" if entry.browsable else ""
 
 
 def column_width(options):
@@ -203,7 +214,7 @@ class Column(Gtk.Overlay):
             self.details[key] = column
         arrow_cell = Gtk.CellRendererText(xalign=0.5)
         arrow_cell.set_property("foreground-rgba", Gdk.RGBA(0.55, 0.55, 0.55, 1))
-        arrow = Gtk.TreeViewColumn(None, arrow_cell, text=C_ARROW)
+        arrow = Gtk.TreeViewColumn(None, arrow_cell, markup=C_ARROW)
         arrow.set_sizing(Gtk.TreeViewColumnSizing.FIXED)
         arrow.set_fixed_width(22)
         tree.append_column(arrow)
@@ -452,7 +463,7 @@ class Column(Gtk.Overlay):
         self.store.clear()
         insert = self.store.insert_with_valuesv   # much faster than append() for big folders
         for i, e in enumerate(self.visible):
-            insert(-1, STORE_COLUMNS, [icons.for_entry(e, colors), e.display, "›" if e.browsable else "", i])
+            insert(-1, STORE_COLUMNS, [icons.for_entry(e, colors), e.display, arrow_for(e), i])
         self.tree.set_model(self.store)
         self.selected, self.marked = None, []
         if previous_names:
@@ -756,7 +767,8 @@ class MillerView(Gtk.ScrolledWindow):
         if fit:
             most = max(1, int(self.options["max_columns"]))
             opening = (focused is not None and focused.selected is not None
-                       and focused.selected.browsable and len(focused.marked) <= 1)
+                       and focused.selected.browsable and not focused.selected.container
+                       and len(focused.marked) <= 1)
             slot = most > 1 and (has_next or opening)
             first = max(0, self.focus_index + (2 if most > 1 else 1) - most)
             last = self.focus_index + 1 if slot else self.focus_index
@@ -807,7 +819,7 @@ class MillerView(Gtk.ScrolledWindow):
         if len(names) == 1 and self._focus_selected:
             self.focus(column)
             self.selected(column, entry)
-        elif entry.browsable:
+        elif entry.browsable and (len(names) > 1 or not entry.container):   # (a container: only on the way)
             self.window.selection_changed(entry)
             self.add_column_for(entry).pending = names[1:]
         else:
@@ -845,7 +857,7 @@ class MillerView(Gtk.ScrolledWindow):
         self.truncate(self.columns.index(column))
         many = column.marked if len(column.marked) > 1 else None
         self.window.selection_changed(entry, many)
-        if entry is not None and entry.browsable and not many:
+        if entry is not None and entry.browsable and not entry.container and not many:
             self._open_timer = GLib.timeout_add(OPEN_DELAY, self._open_child, column, entry)
 
     def updated(self, column, entry):
@@ -900,7 +912,7 @@ class MillerView(Gtk.ScrolledWindow):
             return
         if len(column.marked) > 1:
             self.window.open_entries(column.marked)
-        elif entry.browsable:
+        elif entry.browsable and not entry.container:
             self.go_right(column)          # folders and archives open as columns
         else:
             self.window.open_entries([entry])

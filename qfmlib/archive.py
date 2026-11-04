@@ -10,8 +10,16 @@ import uuid
 
 import libarchive
 
-SUFFIXES = (".zip", ".jar", ".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tbz", ".tbz2", ".tar.xz", ".txz",
+SUFFIXES = (".zip", ".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tbz", ".tbz2", ".tar.xz", ".txz",
             ".tar.zst", ".tzst", ".tar.lz", ".tar.lzma", ".7z", ".rar", ".iso", ".cpio", ".cab", ".xar")
+# files that are zip (or other) archives inside but documents, books, packages… outside: → looks
+# inside them like an archive, Enter opens them as usual, and selecting one doesn't open a column
+CONTAINER_SUFFIXES = (".docx", ".docm", ".xlsx", ".xlsm", ".pptx", ".pptm",     # Microsoft Office
+                      ".odt", ".ods", ".odp", ".odg", ".ott", ".ots", ".otp",    # LibreOffice
+                      ".epub", ".cbz", ".cbr", ".cb7", ".cbt",                   # books, comics
+                      ".jar", ".war", ".ear", ".apk", ".aab", ".xapk", ".ipa",   # Java, Android, iOS
+                      ".whl", ".nupkg", ".vsix", ".xpi", ".appx", ".msix", ".rpm",
+                      ".3mf", ".kmz", ".ora", ".kra", ".xmind", ".sketch")
 # Compress… offers these: suffix -> (libarchive format, filter)
 FORMATS = {".zip": ("zip", None), ".tar.gz": ("gnutar", "gzip"), ".tar.xz": ("gnutar", "xz"),
            ".tar.zst": ("gnutar", "zstd"), ".7z": ("7zip", None)}
@@ -21,6 +29,10 @@ Error = libarchive.ArchiveError
 
 def is_archive(name):
     return name.lower().endswith(SUFFIXES)
+
+
+def is_container(name):
+    return name.lower().endswith(CONTAINER_SUFFIXES)
 
 
 def strip_suffix(name):
