@@ -360,11 +360,12 @@ class MenuSink:
 
 
 class PanelSink:
-    """Where fill_actions puts things: the Actions panel - a row of flat buttons per action,
-    submenus as expanders (open_: shown open)."""
+    """Where fill_actions puts things: the Actions panel - a row of flat buttons per action; a
+    submenu is a row with › that slides to its own page (pages: the panel's Gtk.Stack), which
+    starts with a ‹ row back."""
 
-    def __init__(self, box, after=None):
-        self.box, self.after = box, after     # after(): called once an action has run
+    def __init__(self, box, after=None, pages=None):
+        self.box, self.after, self.pages = box, after, pages   # after(): called once an action has run
 
     def item(self, text, callback=None, icon=None, key=None, mods=0, gicon=None, surface=None):
         button = Gtk.Button(relief=Gtk.ReliefStyle.NONE, can_focus=True)
@@ -383,15 +384,32 @@ class PanelSink:
         return button
 
     def submenu(self, text, icon, open_=False):
-        expander = Gtk.Expander(expanded=open_, margin_start=6)
-        title = Gtk.Box(spacing=10)
-        title.pack_start(_image(icon), False, False, 0)
-        title.pack_start(Gtk.Label(label=text, xalign=0, ellipsize=Pango.EllipsizeMode.END), True, True, 0)
-        expander.set_label_widget(title)
-        inside = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, margin_start=14)
-        expander.add(inside)
-        self.box.pack_start(expander, False, False, 0)
-        return PanelSink(inside, self.after)
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        back = Gtk.Button(relief=Gtk.ReliefStyle.NONE, can_focus=True, tooltip_text="Back (Esc)")
+        title = Gtk.Box(spacing=8)
+        title.pack_start(Gtk.Label(label="‹"), False, False, 0)
+        name = Gtk.Label(label=text, xalign=0, ellipsize=Pango.EllipsizeMode.END)
+        name.get_style_context().add_class("qfm-pane-heading")
+        title.pack_start(name, True, True, 0)
+        back.add(title)
+        back.get_style_context().add_class("qfm-action")
+        back.connect("clicked", lambda *_: self.pages.set_visible_child_name("main"))
+        page.pack_start(back, False, False, 0)
+        page.pack_start(Gtk.Separator(margin_bottom=4), False, False, 0)
+        self.pages.add_named(page, f"sub{len(self.pages.get_children())}")
+
+        row = Gtk.Button(relief=Gtk.ReliefStyle.NONE, can_focus=True)
+        line = Gtk.Box(spacing=10)
+        line.pack_start(_image(icon), False, False, 0)
+        line.pack_start(Gtk.Label(label=text, xalign=0, ellipsize=Pango.EllipsizeMode.END), True, True, 0)
+        more = Gtk.Label(label="›")
+        more.get_style_context().add_class("qfm-preview-key")
+        line.pack_start(more, False, False, 0)
+        row.add(line)
+        row.get_style_context().add_class("qfm-action")
+        row.connect("clicked", lambda *_: (self.pages.set_visible_child(page), back.grab_focus()))
+        self.box.pack_start(row, False, False, 0)
+        return PanelSink(page, self.after, self.pages)
 
     def separator(self):
         self.box.pack_start(Gtk.Separator(margin_top=4, margin_bottom=4), False, False, 0)

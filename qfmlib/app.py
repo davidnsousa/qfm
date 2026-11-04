@@ -860,9 +860,11 @@ class Window(Gtk.ApplicationWindow):
         close.connect("clicked", lambda *_: self.close_actions())
         header.pack_start(self.actions_title, True, True, 0)
         header.pack_start(close, False, False, 0)
-        self.actions_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        # "main": the actions; one more page per submenu (Open With, Folder Color…)
+        self.actions_pages = Gtk.Stack(transition_type=Gtk.StackTransitionType.SLIDE_LEFT_RIGHT,
+                                       transition_duration=120, vhomogeneous=False)
         scroller = Gtk.ScrolledWindow(vexpand=True, hscrollbar_policy=Gtk.PolicyType.NEVER)
-        scroller.add(self.actions_box)
+        scroller.add(self.actions_pages)
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6,
                        margin_start=8, margin_end=8, margin_top=8, margin_bottom=8)
         page.pack_start(header, False, False, 0)
@@ -884,16 +886,19 @@ class Window(Gtk.ApplicationWindow):
         self.refill_actions()
 
     def refill_actions(self):
-        for child in self.actions_box.get_children():
+        for child in self.actions_pages.get_children():
             child.destroy()
+        main = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.actions_pages.add_named(main, "main")
         entry, entries = self.selected_entry(), self.chosen()
         if entry is None or not entries:
             self.actions_title.set_text("Actions")
-            self.actions_box.pack_start(Gtk.Label(label="Select something", xalign=0), False, False, 0)
+            main.pack_start(Gtk.Label(label="Select something", xalign=0), False, False, 0)
         else:
             self.actions_title.set_text(f"Actions · {actions.what(entries)}")
-            actions.fill_actions(actions.PanelSink(self.actions_box, self._after_action), self, entry, entries)
-        self.actions_box.show_all()
+            actions.fill_actions(actions.PanelSink(main, self._after_action, self.actions_pages), self, entry, entries)
+        self.actions_pages.show_all()
+        self.actions_pages.set_visible_child_name("main")
 
     def show_path_entry(self):
         """Ctrl+L / the ✎ button: the current folder's full path in a box, to read, copy or edit."""
@@ -1221,6 +1226,9 @@ class Window(Gtk.ApplicationWindow):
                 return False                     # the sidebar's Esc goes back to the columns
             if self.side.get_visible_child_name() == "search":
                 self.close_search()
+            elif (self.side.get_visible() and self.side.get_visible_child_name() == "actions"
+                  and self.actions_pages.get_visible_child_name() != "main"):
+                self.actions_pages.set_visible_child_name("main")     # a submenu's page: back
             elif self.side.get_visible() and self.side.get_visible_child_name() in ("keys", "options", "actions"):
                 self.close_keys()
             elif self.progress.cancel_all():
