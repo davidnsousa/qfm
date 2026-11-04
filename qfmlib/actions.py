@@ -1,5 +1,8 @@
 """Open, open with, default apps, show in file manager, copy path - and the actions menu.
 Every action takes a list of entries (one or several selected items)."""
+import os
+import shutil
+
 from gi.repository import Gdk, Gio, GLib, Gtk
 
 from . import archive
@@ -67,11 +70,65 @@ def launch(win, app, entries):
         win.flash(f"Could not extract {what(entries)}: {str(err).split(' (errno=')[0]}", error=True)
         return
     try:
-        app.launch(files, win.get_display().get_app_launch_context())
+        try:
+            app.launch(files, win.get_display().get_app_launch_context())
+        except GLib.Error:
+            # GLib only knows a few terminals (not Alacritty, kitty, foot…): run it in ours
+            if not (isinstance(app, Gio.DesktopAppInfo) and app.get_boolean("Terminal")):
+                raise
+            run_in_terminal(app, [f.get_path() for f in files])
         win.flash(f"Opened {what(entries)} with {app.get_display_name()}")
         win.close_after_open()
     except GLib.Error as err:
         win.flash(f"Could not open {what(entries)}: {err.message}", error=True)
+    except OSError as err:
+        win.flash(f"Could not open {what(entries)}: {err}", error=True)
+
+
+# terminals and how each is told the command to run after them, in the order tried
+# (after $TERMINAL): xdg-terminal-exec runs the user's chosen one
+TERMINALS = (("xdg-terminal-exec", []), ("alacritty", ["-e"]), ("kitty", []), ("foot", []),
+             ("wezterm", ["start", "--"]), ("ghostty", ["-e"]), ("konsole", ["-e"]),
+             ("gnome-terminal", ["--"]), ("kgx", ["--"]), ("xfce4-terminal", ["-x"]),
+             ("mate-terminal", ["-x"]), ("tilix", ["-e"]), ("terminator", ["-x"]), ("lxterminal", ["-e"]),
+             ("qterminal", ["-e"]), ("sakura", ["-x"]), ("st", ["-e"]), ("urxvt", ["-e"]), ("xterm", ["-e"]))
+
+
+def find_terminal():
+    """[terminal, its run-this flag…] or None."""
+    named = os.environ.get("TERMINAL", "").split()
+    if named and shutil.which(named[0]):
+        flags = dict(TERMINALS).get(os.path.basename(named[0]), ["-e"])
+        return named + ([] if len(named) > 1 else flags)
+    for name, flags in TERMINALS:
+        if shutil.which(name):
+            return [name, *flags]
+    return None
+
+
+def run_in_terminal(app, paths):
+    """Start a Terminal=true app (its desktop file's Exec, with paths) in a terminal, in the
+    first path's folder; once per path if the Exec takes one file at a time (%f, %u)."""
+    terminal = find_terminal()
+    if terminal is None:
+        raise OSError("no terminal found - install one, or set $TERMINAL")
+    ok, argv = GLib.shell_parse_argv(app.get_string("Exec") or "")
+    single = any(code in arg for arg in argv for code in ("%f", "%u"))
+    for group in ([[p] for p in paths] or [[]]) if single else [paths]:
+        command = []
+        for arg in argv:
+            if arg in ("%F", "%U"):
+                command += group
+            elif arg in ("%i", "%c", "%k"):
+                continue
+            else:
+                first = group[0] if group else ""
+                arg = arg.replace("%f", first).replace("%u", first).replace("%%", "%")
+                if arg:
+                    command.append(arg)
+        launcher = Gio.SubprocessLauncher.new(Gio.SubprocessFlags.NONE)
+        launcher.set_cwd(os.path.dirname(paths[0]) if paths else os.path.expanduser("~"))
+        launcher.spawnv(terminal + command)
 
 
 def open_default(win, entries):
