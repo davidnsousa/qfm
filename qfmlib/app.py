@@ -102,16 +102,8 @@ class Window(Gtk.ApplicationWindow):
         self.filter_revealer.add(self.filter_entry)
         self.search_button = icon_button("edit-find-symbolic", "Filter / search (Ctrl+F)")
         self.search_button.connect("clicked", lambda *_: self.focus_filter())
-        settings_button = Gtk.MenuButton(popover=self._settings_popover())
-        settings_button.add(Gtk.Image.new_from_icon_name("emblem-system-symbolic", Gtk.IconSize.BUTTON))
-        settings_button.set_tooltip_text("Settings")
-        settings_button.set_relief(Gtk.ReliefStyle.NONE)
-        settings_button.set_can_focus(False)
-        options_button = Gtk.MenuButton(popover=self._options_popover())
-        options_button.add(Gtk.Image.new_from_icon_name("open-menu-symbolic", Gtk.IconSize.BUTTON))
-        options_button.set_tooltip_text("View options")
-        options_button.set_relief(Gtk.ReliefStyle.NONE)
-        options_button.set_can_focus(False)
+        options_button = icon_button("emblem-system-symbolic", "Options (Ctrl+,)")
+        options_button.connect("clicked", lambda *_: self.toggle_options())
         self.preview_button = icon_button("sidebar-show-right-symbolic", "Preview (Space)", toggle=True)
         self.preview_button.connect("toggled", lambda b: self.set_preview(b.get_active()))
         toolbar.pack_start(self.sidebar_button, False, False, 0)
@@ -120,7 +112,6 @@ class Window(Gtk.ApplicationWindow):
         toolbar.pack_start(self.filter_revealer, False, False, 0)
         toolbar.pack_start(self.search_button, False, False, 0)
         toolbar.pack_start(options_button, False, False, 0)
-        toolbar.pack_start(settings_button, False, False, 0)
         toolbar.pack_start(self.preview_button, False, False, 0)
 
         # body: sidebar | columns | preview or search results
@@ -148,6 +139,7 @@ class Window(Gtk.ApplicationWindow):
         self.side.add_named(preview_scroller, "preview")
         self.side.add_named(self.search, "search")
         self.side.add_named(self.keys, "keys")
+        self.side.add_named(self._options_page(), "options")
         self.inner = Gtk.Paned()
         self.inner.pack1(self.view, True, False)
         self.inner.pack2(self.side, False, False)
@@ -743,6 +735,17 @@ class Window(Gtk.ApplicationWindow):
         self.refresh_preview()
         self.focus_columns()
 
+    def toggle_options(self):
+        """Ctrl+, / the gear button: the Options panel in the side pane, or back to the preview."""
+        if self.side.get_visible() and self.side.get_visible_child_name() == "options":
+            return self.close_options()
+        self.preview.stop_media()
+        self.side.set_visible_child_name("options")
+        self.side.set_visible(True)
+        self.options_first.grab_focus()
+
+    close_options = close_keys    # (both go back to the preview, or no side pane)
+
     def show_path_entry(self):
         """Ctrl+L / the ✎ button: the current folder's full path in a box, to read, copy or edit."""
         column = self.view.focused_column
@@ -799,13 +802,19 @@ class Window(Gtk.ApplicationWindow):
 
     # -- options -------------------------------------------------------------
 
-    def _options_popover(self):
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2,
-                      margin_start=10, margin_end=10, margin_top=8, margin_bottom=8)
+    def _options_page(self):
+        """The Options panel (the gear button, Ctrl+,) in the side pane: how the columns look,
+        the window, and qfm as the default file manager. Changes apply at once."""
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
 
         def heading(text):
-            label = Gtk.Label(label=text, xalign=0, margin_top=6)
+            label = Gtk.Label(label=text, xalign=0, margin_top=12 if box.get_children() else 0)
             label.get_style_context().add_class("qfm-pane-heading")
+            box.pack_start(label, False, False, 0)
+
+        def note(text):
+            label = Gtk.Label(label=text, xalign=0, wrap=True, max_width_chars=30, margin_start=24)
+            label.get_style_context().add_class("qfm-preview-key")
             box.pack_start(label, False, False, 0)
 
         heading("Sort by")
@@ -818,7 +827,7 @@ class Window(Gtk.ApplicationWindow):
         descending = Gtk.CheckButton(label="Descending", active=self.options["descending"])
         descending.connect("toggled", lambda b: self._set_option("descending", b.get_active()))
         box.pack_start(descending, False, False, 0)
-        heading("Columns")
+        heading("Details")
         for key, label in DETAIL_NAMES:
             check = Gtk.CheckButton(label=label, active=key in self.options["details"])
             check.connect("toggled", lambda b, k=key: self._toggle_detail(k, b.get_active()))
@@ -840,29 +849,6 @@ class Window(Gtk.ApplicationWindow):
         self.hidden_check = Gtk.CheckButton(label="Hidden files (Ctrl+H)", active=self.options["show_hidden"])
         self.hidden_check.connect("toggled", lambda b: self._set_option("show_hidden", b.get_active()))
         box.pack_start(self.hidden_check, False, False, 0)
-        keys = Gtk.Button(label="Keyboard Shortcuts (F1)", relief=Gtk.ReliefStyle.NONE, margin_top=8)
-        keys.get_child().set_xalign(0)
-        keys.connect("clicked", lambda *_: (popover.popdown(), self.toggle_keys()))
-        box.pack_start(keys, False, False, 0)
-        box.show_all()
-        popover = Gtk.Popover()
-        popover.add(box)
-        return popover
-
-    def _settings_popover(self):
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2,
-                      margin_start=10, margin_end=10, margin_top=8, margin_bottom=8)
-
-        def heading(text):
-            label = Gtk.Label(label=text, xalign=0, margin_top=6)
-            label.get_style_context().add_class("qfm-pane-heading")
-            box.pack_start(label, False, False, 0)
-
-        def note(text):
-            label = Gtk.Label(label=text, xalign=0, wrap=True, max_width_chars=44, margin_start=24)
-            label.get_style_context().add_class("qfm-preview-key")
-            box.pack_start(label, False, False, 0)
-
         heading("Window")
         dialog = Gtk.RadioButton(label="Quick dialog", active=self.options["window_mode"] == "dialog")
         normal = Gtk.RadioButton(label="Normal window", group=dialog, active=self.options["window_mode"] == "normal")
@@ -878,10 +864,28 @@ class Window(Gtk.ApplicationWindow):
         box.pack_start(self.default_fm_check, False, False, 0)
         note("Folders you open from other apps, and their “Show in folder”, come to qfm. "
              "Turning it off gives folders back to the app that had them.")
-        box.show_all()
-        popover = Gtk.Popover()
-        popover.add(box)
-        return popover
+        keys = Gtk.Button(label="Keyboard Shortcuts (F1)", relief=Gtk.ReliefStyle.NONE, margin_top=12)
+        keys.get_child().set_xalign(0)
+        keys.connect("clicked", lambda *_: self.toggle_keys())
+        box.pack_start(keys, False, False, 0)
+
+        header = Gtk.Box(spacing=6)
+        title = Gtk.Label(label="Options", xalign=0)
+        title.get_style_context().add_class("qfm-pane-heading")
+        close = Gtk.Button.new_from_icon_name("window-close-symbolic", Gtk.IconSize.MENU)
+        close.set_relief(Gtk.ReliefStyle.NONE)
+        close.set_tooltip_text("Close (Ctrl+, or Esc)")
+        close.connect("clicked", lambda *_: self.close_options())
+        header.pack_start(title, True, True, 0)
+        header.pack_start(close, False, False, 0)
+        scroller = Gtk.ScrolledWindow(vexpand=True, hscrollbar_policy=Gtk.PolicyType.NEVER)
+        scroller.add(box)
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6,
+                       margin_start=8, margin_end=8, margin_top=8, margin_bottom=8)
+        page.pack_start(header, False, False, 0)
+        page.pack_start(scroller, True, True, 0)
+        self.options_first = group           # focused when the panel opens
+        return page
 
     def _apply_window_hint(self):
         if self.options["window_mode"] == "dialog":
@@ -959,6 +963,8 @@ class Window(Gtk.ApplicationWindow):
                 self.focus_filter()
             elif lower == Gdk.KEY_l:
                 self.show_path_entry()
+            elif key == Gdk.KEY_comma:
+                self.toggle_options()
             elif lower in (Gdk.KEY_q, Gdk.KEY_w):
                 self.close()
             elif typing:
@@ -1028,7 +1034,7 @@ class Window(Gtk.ApplicationWindow):
                 return False                     # the sidebar's Esc goes back to the columns
             if self.side.get_visible_child_name() == "search":
                 self.close_search()
-            elif self.side.get_visible() and self.side.get_visible_child_name() == "keys":
+            elif self.side.get_visible() and self.side.get_visible_child_name() in ("keys", "options"):
                 self.close_keys()
             elif self.progress.cancel_all():
                 self.flash("Cancelling…")

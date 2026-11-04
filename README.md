@@ -7,7 +7,7 @@ A keyboard-driven file manager for Linux (GTK3) with Miller columns.
 ## Features
 
 - Opens as a floating window in the centre of the screen. Esc closes it, and it closes
-  after opening a file. It can also run as a normal window (settings).
+  after opening a file. It can also run as a normal window (Options, Ctrl+,).
 - Every action has a keyboard shortcut. F1 shows the list.
 - Questions (rename, delete, name conflicts, extract to, open with) are shown in a bar at
   the bottom of the window, not in dialog windows.

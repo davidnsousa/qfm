@@ -55,6 +55,7 @@ SHORTCUTS = [
         ("Space", "show / hide the preview"),
         ("Ctrl+H", "show / hide hidden files"),
         ("Ctrl+R / F5", "reload"),
+        ("Ctrl+,", "options: sorting, columns, panels, window…"),
         ("F1", "this list"),
     ]),
     ("Video and audio (in the preview)", [
@@ -71,7 +72,7 @@ SHORTCUTS = [
     ]),
     ("Window", [
         ("Esc", "cancel a question / clear the filter / close a side panel / cancel copies; "
-                "else quit (as a quick dialog - ⚙ settings)"),
+                "else quit (as a quick dialog - ⚙ Options)"),
         ("Ctrl+Q / Ctrl+W", "quit"),
     ]),
 ]
