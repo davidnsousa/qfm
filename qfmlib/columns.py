@@ -144,7 +144,6 @@ class Column(Gtk.Overlay):
         self.select_after = None  # a name to select after the next load (file operations)
         self.force_show = set()   # hidden names shown anyway (a path going through them was opened)
         self.loaded = False
-        self.separator = None
         self.cancellable = None
         self.monitor = None
         self._reload_timer = 0
@@ -212,7 +211,11 @@ class Column(Gtk.Overlay):
 
         scroller = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
         scroller.add(tree)
-        self.add(scroller)
+        self.separator = Gtk.Separator(orientation=Gtk.Orientation.VERTICAL)   # shown by MillerView
+        inside = Gtk.Box()
+        inside.pack_start(self.separator, False, False, 0)
+        inside.pack_start(scroller, True, True, 0)
+        self.add(inside)
         self.message = Gtk.Label(halign=Gtk.Align.CENTER, valign=Gtk.Align.START, margin_top=24,
                                  wrap=True, justify=Gtk.Justification.CENTER, max_width_chars=28)
         self.message.get_style_context().add_class("qfm-message")
@@ -365,7 +368,7 @@ class Column(Gtk.Overlay):
         shown = self.view.options["details"]
         for key, column in self.details.items():
             column.set_visible(key in shown)
-        self.set_size_request(column_width(self.view.options), -1)
+        self.set_size_request(-1 if self.view.fit else column_width(self.view.options), -1)
 
     def refresh(self):
         """Fill the list from self.entries, with hidden files, filter and sort applied."""
@@ -652,15 +655,11 @@ class MillerView(Gtk.ScrolledWindow):
 
     def add_column(self, path, archive_path=None, inner=None):
         column = Column(self, path, archive_path, inner)
-        if self.columns:
-            column.separator = Gtk.Separator(orientation=Gtk.Orientation.VERTICAL)
-            self.box.pack_start(column.separator, False, False, 0)
-            column.separator.show()
         self.box.pack_start(column, False, False, 0)
         self.box.reorder_child(self.placeholder, -1)
         column.show_all()
         self.columns.append(column)
-        self._update_placeholder()
+        self._layout()
         if self._reveal_target not in self.columns:
             self._reveal_target = column
         GLib.idle_add(self._reveal)
@@ -671,15 +670,31 @@ class MillerView(Gtk.ScrolledWindow):
         self._cancel_open()
         for column in self.columns[index + 1:]:
             column.close()
-            if column.separator:
-                column.separator.destroy()
             column.destroy()
         del self.columns[index + 1:]
         self.focus_index = max(0, min(self.focus_index, index))
-        self._update_placeholder()
+        self._layout()
 
-    def _update_placeholder(self):
-        self.placeholder.set_visible(bool(self.columns) and self.focus_index == len(self.columns) - 1)
+    @property
+    def fit(self):
+        return bool(self.options["fit_columns"])
+
+    def _layout(self):
+        """Scrolling: every column at its width, the placeholder after the focused one when it
+        has no next column. Fitting: the focused column, the one after it and those before, at
+        most max_columns, splitting the width; the others hidden until navigated to."""
+        fit = self.fit
+        self.set_policy(Gtk.PolicyType.NEVER if fit else Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.NEVER)
+        self.box.set_homogeneous(fit)
+        most = max(1, int(self.options["max_columns"]))
+        last = min(len(self.columns) - 1, self.focus_index + (1 if most > 1 else 0))
+        first = max(0, last - most + 1) if fit else 0
+        for i, column in enumerate(self.columns):
+            self.box.child_set_property(column, "expand", fit)
+            self.box.child_set_property(column, "fill", fit)
+            column.set_visible(not fit or first <= i <= last)
+            column.separator.set_visible(i > first)
+        self.placeholder.set_visible(not fit and bool(self.columns) and self.focus_index == len(self.columns) - 1)
 
     def go_to(self, path, select=None):
         """Show the folder path (columns from ~ or / down to it), focused.
@@ -739,7 +754,7 @@ class MillerView(Gtk.ScrolledWindow):
                     other.refresh()
                     self.window.filter_cleared()
         self.focus_index = index
-        self._update_placeholder()
+        self._layout()
         for other in self.columns:
             context = other.get_style_context()
             (context.add_class if other is column else context.remove_class)("active")
@@ -842,7 +857,7 @@ class MillerView(Gtk.ScrolledWindow):
     def _reveal(self):
         """Scroll so the target column (and the one after it) are in view."""
         column = self._reveal_target
-        if column not in self.columns:
+        if self.fit or column not in self.columns:
             return False
         alloc = column.get_allocation()
         if alloc.width <= 1:
@@ -870,6 +885,7 @@ class MillerView(Gtk.ScrolledWindow):
             if column in self.columns:
                 column.apply_details()
                 column.refresh()
+        self._layout()
 
     def refresh_folder(self, path):
         for column in list(self.columns):

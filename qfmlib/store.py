@@ -20,6 +20,8 @@ DEFAULT_OPTIONS = {
     "sort": "name",          # name, size, modified, type
     "descending": False,
     "details": [],           # extra columns shown: type, size, modified, created
+    "fit_columns": True,     # the shown columns split the width (at most max_columns); False: they scroll
+    "max_columns": 3,
     "preview": True,
     "sidebar": True,
     "window_width": 1280,
