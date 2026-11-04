@@ -742,20 +742,21 @@ class MillerView(Gtk.ScrolledWindow):
 
     def _layout(self):
         """Scrolling: every column at its width, the placeholder after the focused one when it
-        has no next column. Fitting: the focused column, the slot after it (its next column, or
-        the placeholder) and the columns before, at most max_columns, splitting the width; the
-        others hidden until navigated to. The slot stays while moving between files and folders,
-        so only it changes; a lone first column showing a file fills the width."""
+        has no next column. Fitting: the focused column, the columns before it and the slot after
+        it, at most max_columns, splitting the width; the others hidden until navigated to. The
+        slot (the next column, or the placeholder while a folder's column is about to open) is
+        counted even when empty, so the columns before don't change when moving between files and
+        folders: with a file selected, they just share the width."""
         fit = self.fit
         self.set_policy(Gtk.PolicyType.NEVER if fit else Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.NEVER)
         self.box.set_homogeneous(fit)
         focused, has_next = self.focused_column, self.focus_index + 1 < len(self.columns)
         if fit:
             most = max(1, int(self.options["max_columns"]))
-            slot = most > 1 and (has_next or self.focus_index > 0
-                                 or (focused is not None and focused.selected is not None
-                                     and focused.selected.browsable))
-            first = max(0, self.focus_index + (2 if slot else 1) - most)
+            opening = (focused is not None and focused.selected is not None
+                       and focused.selected.browsable and len(focused.marked) <= 1)
+            slot = most > 1 and (has_next or opening)
+            first = max(0, self.focus_index + (2 if most > 1 else 1) - most)
             last = self.focus_index + 1 if slot else self.focus_index
         else:
             slot, first, last = focused is not None, 0, len(self.columns)
