@@ -324,8 +324,9 @@ def build_menu(win, entry, entries):
         from . import trash
         if targets and all(trash.is_top(e.path) for e in targets):
             _item(menu, "Restore", ops.restore, "edit-undo-symbolic")
-    if len(targets) == 1 and not read_only:
-        _item(menu, "Rename…", ops.rename, "document-edit-symbolic", Gdk.KEY_F2)
+    if targets and not read_only:
+        _item(menu, "Rename…" if len(targets) == 1 else f"Rename {len(targets)} Items…", ops.rename,
+              "document-edit-symbolic", Gdk.KEY_F2)
     if targets:
         _item(menu, f"Copy{' ' + what(targets) if len(targets) > 1 else ''}", ops.copy,
               "edit-copy-symbolic", Gdk.KEY_c, ctrl)

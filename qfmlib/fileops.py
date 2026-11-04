@@ -2,6 +2,7 @@
 copy / cut / paste, duplicate, links, move to trash, delete, compress, extract. Questions go to the prompt bar (win.prompt); copies, moves, deletes and archive work
 run in a worker thread; the columns refresh through their file monitors."""
 import os
+import re
 import shutil
 import threading
 from urllib.parse import unquote, urlparse
@@ -49,6 +50,21 @@ def copy_name(folder, name, is_dir, word):
     while os.path.lexists(os.path.join(folder, candidate)):
         candidate, n = f"{stem} ({word} {n}){ext}", n + 1
     return candidate
+
+
+def batch_names(entries, find, replace):
+    """The new names for renaming entries together. find: text replaced by replace in each name;
+    no find: replace is the new name (the extension is kept). In replace, # is a number (### →
+    001, in list order) and * the old name (without its extension)."""
+    names = []
+    for i, e in enumerate(entries, 1):
+        stem, ext = (e.name, "") if e.is_dir else os.path.splitext(e.name)
+        new = re.sub(r"#+", lambda m: str(i).zfill(len(m.group())), replace).replace("*", stem)
+        if find:
+            names.append(e.name.replace(find, new))
+        else:
+            names.append(new + ext if replace else e.name)
+    return names
 
 
 def name_error(name):
@@ -282,8 +298,10 @@ class FileOps:
         targets, column = self.win.targets(), self._column()
         if not self._writable():
             return
-        if len(targets) != 1:
-            return self.win.flash("Select one item to rename", error=True)
+        if len(targets) > 1:
+            return self.rename_many(targets)
+        if not targets:
+            return self.win.flash("Select something to rename", error=True)
         entry = targets[0]
         folder = os.path.dirname(entry.path)
 
@@ -314,6 +332,82 @@ class FileOps:
         stem = entry.name if entry.is_dir else os.path.splitext(entry.name)[0]
         self.win.prompt.ask_text(f"Rename “{entry.display}” to:", entry.name, rename, "Rename",
                                  select=(0, len(stem) or -1))
+
+    def rename_many(self, targets):
+        """F2 with several selected: find and replace in their names, or a new name for all with
+        numbers; what it will do shows as you type."""
+        folder = os.path.dirname(targets[0].path)
+
+        def check(find, replace):
+            """(old → new pairs that change, or an error)."""
+            new = batch_names(targets, find, replace)
+            pairs = [(e, n) for e, n in zip(targets, new) if n != e.name]
+            for _, n in pairs:
+                if name_error(n):
+                    return name_error(n)
+            twice = next((n for n in new if new.count(n) > 1), None)
+            if twice:
+                return f"Two would be named {twice}" + ("" if find else " - add # for a number")
+            leaving = {e.name for e, _ in pairs}
+            for _, n in pairs:
+                if n not in leaving and os.path.lexists(os.path.join(folder, n)):
+                    return f"{n} already exists"
+            return pairs
+
+        def preview(find, replace):
+            result = check(find, replace)
+            if isinstance(result, str):
+                return result, True
+            if not result and find:
+                return f"No name has “{find}” in it", True
+            if not result:
+                return "Find text to replace, or leave Find empty for a new name: # = number, * = old name", False
+            shown = ",  ".join(f"{e.name} → {n}" for e, n in result[:2])
+            return f"{shown}{'  …' if len(result) > 2 else ''}  ({len(result)} renamed)", False
+
+        def rename(find, replace):
+            result = check(find, replace)
+            if isinstance(result, str):
+                return result
+            if not result:
+                return "Nothing changes"
+            moves = [(e.path, os.path.join(folder, n)) for e, n in result]
+            try:
+                self._move_all(moves)
+            except OSError as err:
+                return f"Could not rename: {err.strerror or err}"
+            for old, new in moves:
+                self.win.store.rename_path(old, new)
+            self.win.rebuild_sidebar()
+            self._select_in(folder, [os.path.basename(new) for _, new in moves])
+            self.win.flash(f"Renamed {len(moves)} items")
+            self._record(f"renaming {len(moves)} items", lambda: (
+                self._move_all([(new, old) for old, new in moves]),
+                [self.win.store.rename_path(new, old) for old, new in moves]))
+
+        self.win.prompt.ask_fields(f"Rename {len(targets)} items:", [("Find", ""), ("Replace with", "")],
+                                   rename, "Rename", on_change=preview)
+
+    @staticmethod
+    def _move_all(moves):
+        """Rename (old, new) pairs that may swap or chain names: through temporary names first.
+        If one fails, what was done is put back."""
+        parked, placed = [], []     # (old, temp) moved aside; (old, new) in place
+        try:
+            for i, (old, new) in enumerate(moves):
+                temp = os.path.join(os.path.dirname(old), f".qfm-rename-{os.getpid()}-{i}")
+                os.rename(old, temp)
+                parked.append((old, temp))
+            for (old, temp), (_, new) in zip(list(parked), moves):
+                if os.path.lexists(new):
+                    raise FileExistsError(17, "already exists", new)
+                os.rename(temp, new)
+                parked.remove((old, temp))
+                placed.append((old, new))
+        except OSError:
+            for old, where in placed + parked:
+                os.rename(where, old)
+            raise
 
     def copy(self, cut=False):
         targets = self.win.targets()

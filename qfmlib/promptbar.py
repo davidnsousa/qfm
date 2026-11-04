@@ -62,6 +62,26 @@ class PromptBar(Gtk.Revealer):
         self._show(entry)
         entry.select_region(*(select or (0, -1)))
 
+    def ask_fields(self, label, fields, on_ok, ok_label="OK", on_change=None):
+        """Several lines of text side by side: fields = [(placeholder, initial)]. on_change(*texts)
+        returns (a note, is it an error) shown as they type (e.g. what a rename will do)."""
+        middle = self._start("text", label, ok_label, on_ok)
+        entries = []
+        for placeholder, initial in fields:
+            entry = Gtk.Entry(text=initial, placeholder_text=placeholder, hexpand=True, width_chars=14)
+            entry.connect("activate", lambda *_: self.accept())
+            middle.pack_start(entry, True, True, 0)
+            entries.append(entry)
+        self._value = lambda: tuple(e.get_text() for e in entries)
+        if on_change:
+            def changed(*_):
+                note, error = on_change(*self._value())
+                self._say(note, error)
+            for entry in entries:
+                entry.connect("changed", changed)
+            changed()
+        self._show(entries[0])
+
     def choose(self, text, choices):
         """One of several answers: choices = [(key letter, button label, callback)], the first
         is what Enter picks. The letter keys pick too."""
@@ -216,7 +236,7 @@ class PromptBar(Gtk.Revealer):
         title = Gtk.Label(label=label, xalign=0, ellipsize=Pango.EllipsizeMode.MIDDLE, max_width_chars=60)
         title.get_style_context().add_class("qfm-prompt-label")
         middle = Gtk.Box(spacing=6)
-        self.error = Gtk.Label(xalign=0, ellipsize=Pango.EllipsizeMode.END, max_width_chars=48)
+        self.error = Gtk.Label(xalign=0, ellipsize=Pango.EllipsizeMode.END, max_width_chars=60)
         self.cancel_button = Gtk.Button(label="Cancel")
         self.cancel_button.connect("clicked", lambda *_: self.cancel())
         ok = self.ok_button = Gtk.Button(label=ok_label)
