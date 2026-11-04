@@ -385,6 +385,7 @@ class PanelSink:
 
     def submenu(self, text, icon, open_=False):
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        page.set_focus_vadjustment(self.pages.get_parent().get_vadjustment())
         back = Gtk.Button(relief=Gtk.ReliefStyle.NONE, can_focus=True, tooltip_text="Back (Esc)")
         title = Gtk.Box(spacing=8)
         title.pack_start(Gtk.Label(label="‹"), False, False, 0)
@@ -393,7 +394,7 @@ class PanelSink:
         title.pack_start(name, True, True, 0)
         back.add(title)
         back.get_style_context().add_class("qfm-action")
-        back.connect("clicked", lambda *_: self.pages.set_visible_child_name("main"))
+        back.connect("clicked", lambda *_: self._back(row))
         page.pack_start(back, False, False, 0)
         page.pack_start(Gtk.Separator(margin_bottom=4), False, False, 0)
         self.pages.add_named(page, f"sub{len(self.pages.get_children())}")
@@ -408,8 +409,28 @@ class PanelSink:
         row.add(line)
         row.get_style_context().add_class("qfm-action")
         row.connect("clicked", lambda *_: (self.pages.set_visible_child(page), back.grab_focus()))
+        row.connect("key-press-event", lambda _, e: e.keyval == Gdk.KEY_Right and (row.clicked() or True))
+        page.connect("key-press-event", lambda _, e: e.keyval in (Gdk.KEY_Left, Gdk.KEY_BackSpace)
+                     and (self._back(row) or True))
         self.box.pack_start(row, False, False, 0)
+        self._rows_with_arrows(page)
         return PanelSink(page, self.after, self.pages)
+
+    def _back(self, row):
+        """From a submenu's page (opened from row) back to the actions, the focus on row again."""
+        self.pages.set_visible_child_name("main")
+        row.grab_focus()
+
+    def _rows_with_arrows(self, page):
+        """↑ / ↓ through a submenu page's rows (like the main page: see app.arrow_keys)."""
+        from .app import step_focus
+
+        def on_key(_, event):
+            if event.keyval not in (Gdk.KEY_Up, Gdk.KEY_Down) or event.state & Gtk.accelerator_get_default_mod_mask():
+                return False
+            step_focus(page, 1 if event.keyval == Gdk.KEY_Down else -1)
+            return True
+        page.connect("key-press-event", on_key)
 
     def separator(self):
         self.box.pack_start(Gtk.Separator(margin_top=4, margin_bottom=4), False, False, 0)

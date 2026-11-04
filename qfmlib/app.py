@@ -30,6 +30,47 @@ SORT_FIELDS = (("name", "Name"), ("size", "Size"), ("modified", "Modified"), ("t
 DETAIL_NAMES = (("type", "Kind"), ("size", "Size"), ("modified", "Modified"), ("created", "Created"))
 
 
+def arrow_keys(page, scroller):
+    """↑ / ↓ move the focus through page's rows (without choosing anything - a radio button
+    would otherwise switch as the focus reaches it), scrolling to keep it in view; a number
+    box keeps its own ↑ / ↓."""
+    page.set_focus_vadjustment(scroller.get_vadjustment())
+
+    def on_key(widget, event):
+        if event.state & Gtk.accelerator_get_default_mod_mask() or event.keyval not in (Gdk.KEY_Up, Gdk.KEY_Down):
+            return False
+        if isinstance(widget.get_toplevel().get_focus(), Gtk.SpinButton):
+            return False
+        step_focus(page, 1 if event.keyval == Gdk.KEY_Down else -1)
+        return True       # (at either end: stay)
+
+    page.connect("key-press-event", on_key)
+
+
+def step_focus(page, step):
+    """Move the focus to the next (step 1) or previous (-1) focusable widget in page, in the order
+    they're packed (GTK's own arrow / Tab order goes by position on screen, not always right)."""
+    found = []
+
+    def walk(widget):
+        if not (widget.get_visible() and widget.get_sensitive()):
+            return
+        if widget.get_can_focus() and not isinstance(widget, Gtk.Container) or isinstance(widget, Gtk.Button):
+            found.append(widget)        # (a button is a container too: its label inside isn't a stop)
+        elif isinstance(widget, Gtk.Container):
+            for child in widget.get_children():
+                walk(child)
+
+    for child in page.get_children():
+        walk(child)
+    if not found:
+        return
+    focus = page.get_toplevel().get_focus()
+    here = next((i for i, w in enumerate(found) if focus is w or (focus is not None and focus.is_ancestor(w))), None)
+    target = 0 if here is None else min(max(here + step, 0), len(found) - 1)
+    found[target].grab_focus()
+
+
 def icon_button(icon_name, tooltip, toggle=False):
     button = (Gtk.ToggleButton if toggle else Gtk.Button)()
     button.add(Gtk.Image.new_from_icon_name(icon_name, Gtk.IconSize.BUTTON))
@@ -130,6 +171,7 @@ class Window(Gtk.ApplicationWindow):
                        "volume-added", "volume-removed", "volume-changed"):
             self.volumes.connect(signal, lambda *_: self.rebuild_sidebar())
         self.sidebar.connect("key-press-event", self._on_sidebar_key)
+        self.sidebar.connect("button-press-event", self._on_sidebar_button)
         self.sidebar_scroller = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
         self.sidebar_scroller.get_style_context().add_class("qfm-sidebar-pane")
         self.sidebar_scroller.add(self.sidebar)
@@ -592,6 +634,14 @@ class Window(Gtk.ApplicationWindow):
                 row.set_tooltip_text(short_path(path))
         box.pack_start(image, False, False, 0)
         box.pack_start(Gtk.Label(label=name, xalign=0, ellipsize=Pango.EllipsizeMode.END), True, True, 0)
+        if section == "bookmarks":
+            remove = Gtk.Button.new_from_icon_name("window-close-symbolic", Gtk.IconSize.MENU)
+            remove.set_relief(Gtk.ReliefStyle.NONE)
+            remove.set_can_focus(False)
+            remove.set_tooltip_text("Remove this bookmark (Delete)")
+            remove.get_style_context().add_class("qfm-unbookmark")
+            remove.connect("clicked", lambda *_: self.remove_bookmark(path))
+            box.pack_start(remove, False, False, 0)
         row.add(box)
         self.sidebar.add(row)
 
@@ -686,17 +736,40 @@ class Window(Gtk.ApplicationWindow):
     def _on_sidebar_key(self, listbox, event):
         row = listbox.get_selected_row() or listbox.get_focus_child()
         if event.keyval == Gdk.KEY_Delete and row is not None and row.section == "bookmarks" and row.path:
-            index = row.get_index()
-            self.store.toggle_bookmark(row.path)
-            self.rebuild_sidebar()
-            rows = self.sidebar.get_children()
-            rows[min(index, len(rows) - 1)].grab_focus()
-            self.flash(f"Removed bookmark {short_path(row.path)}")
+            self.remove_bookmark(row.path, refocus=True)
             return True
         if event.keyval in (Gdk.KEY_Escape, Gdk.KEY_Right):
             self.focus_columns()
             return True
         return False
+
+    def remove_bookmark(self, path, refocus=False):
+        """Take path off the bookmarks (the sidebar's ×, its right-click menu, Delete there)."""
+        if path not in self.store.bookmarks:
+            return
+        index = next((r.get_index() for r in self.sidebar.get_children() if getattr(r, "path", None) == path), 0)
+        self.store.toggle_bookmark(path)
+        self.rebuild_sidebar()
+        if refocus:
+            rows = self.sidebar.get_children()
+            rows[min(index, len(rows) - 1)].grab_focus()
+        self.flash(f"Removed bookmark {short_path(path)}")
+
+    def _on_sidebar_button(self, listbox, event):
+        """Right-click on a bookmark: Open, Remove Bookmark."""
+        if event.type != Gdk.EventType.BUTTON_PRESS or event.get_button()[1] != 3:
+            return False
+        row = listbox.get_row_at_y(int(event.y))
+        if row is None or getattr(row, "section", None) != "bookmarks" or not row.path:
+            return False
+        menu = Gtk.Menu()
+        menu.attach_to_widget(listbox, None)
+        sink = actions.MenuSink(menu)
+        sink.item("Open", lambda: self.go_to(row.path), "folder-open-symbolic")
+        sink.item("Remove Bookmark", lambda: self.remove_bookmark(row.path), "non-starred-symbolic", Gdk.KEY_Delete)
+        menu.show_all()
+        menu.popup_at_pointer(event)
+        return True
 
     # -- actions on the selection --------------------------------------------
 
@@ -865,6 +938,7 @@ class Window(Gtk.ApplicationWindow):
                                        transition_duration=120, vhomogeneous=False)
         scroller = Gtk.ScrolledWindow(vexpand=True, hscrollbar_policy=Gtk.PolicyType.NEVER)
         scroller.add(self.actions_pages)
+        self.actions_scroller = scroller
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6,
                        margin_start=8, margin_end=8, margin_top=8, margin_bottom=8)
         page.pack_start(header, False, False, 0)
@@ -884,11 +958,13 @@ class Window(Gtk.ApplicationWindow):
         self.side.set_visible_child_name("actions")
         self.side.set_visible(True)
         self.refill_actions()
+        self.focus_actions()
 
     def refill_actions(self):
         for child in self.actions_pages.get_children():
             child.destroy()
         main = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        arrow_keys(main, self.actions_scroller)
         self.actions_pages.add_named(main, "main")
         entry, entries = self.selected_entry(), self.chosen()
         if entry is None or not entries:
@@ -899,6 +975,15 @@ class Window(Gtk.ApplicationWindow):
             actions.fill_actions(actions.PanelSink(main, self._after_action, self.actions_pages), self, entry, entries)
         self.actions_pages.show_all()
         self.actions_pages.set_visible_child_name("main")
+        if self.get_focus() is None or self.get_focus().is_ancestor(self.actions_pages):
+            self.focus_actions()
+
+    def focus_actions(self):
+        """The first row of the actions page showing (↑ ↓ from there)."""
+        page = self.actions_pages.get_visible_child()
+        rows = [c for c in page.get_children() if c.get_can_focus()] if page else []
+        if rows:
+            rows[0].grab_focus()
 
     def show_path_entry(self):
         """Ctrl+L / the ✎ button: the current folder's full path in a box, to read, copy or edit."""
@@ -1043,6 +1128,7 @@ class Window(Gtk.ApplicationWindow):
         header.pack_start(close, False, False, 0)
         scroller = Gtk.ScrolledWindow(vexpand=True, hscrollbar_policy=Gtk.PolicyType.NEVER)
         scroller.add(box)
+        arrow_keys(box, scroller)
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6,
                        margin_start=8, margin_end=8, margin_top=8, margin_bottom=8)
         page.pack_start(header, False, False, 0)

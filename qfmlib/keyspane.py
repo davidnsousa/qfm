@@ -1,5 +1,5 @@
 """The F1 panel: every shortcut (from keys.SHORTCUTS), grouped, with a filter box."""
-from gi.repository import Gtk, Pango
+from gi.repository import Gdk, Gtk, Pango
 
 from .keys import SHORTCUTS
 
@@ -45,6 +45,8 @@ class KeysPane(Gtk.Box):
         rows_box.pack_start(self.none, False, False, 0)
         scroller = Gtk.ScrolledWindow(vexpand=True, hscrollbar_policy=Gtk.PolicyType.NEVER)
         scroller.add(rows_box)
+        self.scroller = scroller
+        self.filter.connect("key-press-event", self._on_filter_key)   # ↑ ↓ PgUp PgDn scroll the list
         self.pack_start(header, False, False, 0)
         self.pack_start(self.filter, False, False, 0)
         self.pack_start(scroller, True, True, 0)
@@ -62,6 +64,16 @@ class KeysPane(Gtk.Box):
             title.set_visible(group_shown)
             shown_any |= group_shown
         self.none.set_visible(not shown_any)
+
+    def _on_filter_key(self, entry, event):
+        adj = self.scroller.get_vadjustment()
+        step = {Gdk.KEY_Down: adj.get_step_increment() * 2, Gdk.KEY_Up: -adj.get_step_increment() * 2,
+                Gdk.KEY_Page_Down: adj.get_page_increment(), Gdk.KEY_Page_Up: -adj.get_page_increment()}
+        if event.keyval not in step or event.state & Gtk.accelerator_get_default_mod_mask():
+            return False
+        adj.set_value(min(max(adj.get_value() + step[event.keyval], adj.get_lower()),
+                          adj.get_upper() - adj.get_page_size()))
+        return True
 
     def focus(self):
         self.filter.set_text("")
