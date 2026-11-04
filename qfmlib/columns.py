@@ -901,8 +901,12 @@ class MillerView(Gtk.ScrolledWindow):
                 self.go_to(parent, select=os.path.basename(column.path))
             return
         parent = self.columns[index - 1]
-        self.truncate(index)
-        column.clear_selection()
+        lead = parent.selected
+        if lead is not None and lead.container and column.path == lead.path:
+            self.truncate(index - 1)     # back out of a .docx/.epub…: its column goes (it opens on → only)
+        else:
+            self.truncate(index)
+            column.clear_selection()
         self.focus(parent)
         self.window.selection_changed(parent.selected)
 
