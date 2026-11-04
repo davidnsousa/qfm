@@ -104,6 +104,8 @@ class Window(Gtk.ApplicationWindow):
         self.filter_revealer.add(self.filter_entry)
         self.search_button = icon_button("edit-find-symbolic", "Filter / search (Ctrl+F)")
         self.search_button.connect("clicked", lambda *_: self.focus_filter())
+        actions_button = icon_button("open-menu-symbolic", "Actions (Ctrl+K) - everything the menu has, in a panel")
+        actions_button.connect("clicked", lambda *_: self.toggle_actions())
         options_button = icon_button("emblem-system-symbolic", "Options (Ctrl+,)")
         options_button.connect("clicked", lambda *_: self.toggle_options())
         self.preview_button = icon_button("sidebar-show-right-symbolic", "Preview (Space)", toggle=True)
@@ -113,6 +115,7 @@ class Window(Gtk.ApplicationWindow):
         toolbar.pack_start(self.path_button, False, False, 0)
         toolbar.pack_start(self.filter_revealer, False, False, 0)
         toolbar.pack_start(self.search_button, False, False, 0)
+        toolbar.pack_start(actions_button, False, False, 0)
         toolbar.pack_start(options_button, False, False, 0)
         toolbar.pack_start(self.preview_button, False, False, 0)
 
@@ -142,6 +145,7 @@ class Window(Gtk.ApplicationWindow):
         self.side.add_named(self.search, "search")
         self.side.add_named(self.keys, "keys")
         self.side.add_named(self._options_page(), "options")
+        self.side.add_named(self._actions_page(), "actions")
         self.inner = Gtk.Paned()
         self.inner.pack1(self.view, True, False)
         self.inner.pack2(self.side, False, False)
@@ -366,6 +370,8 @@ class Window(Gtk.ApplicationWindow):
         return False
 
     def refresh_preview(self):
+        if self.side.get_visible() and self.side.get_visible_child_name() == "actions":
+            return self.refill_actions()
         if not self.side.get_visible() or self.side.get_visible_child_name() != "preview":
             return
         if self.many:
@@ -417,17 +423,20 @@ class Window(Gtk.ApplicationWindow):
         return self.get_window().get_device_position(pointer)[3]
 
     def open_with_number(self, n):
-        """Alt+n: open the selection with the nth app of the status bar's row (Alt+0: choose)."""
+        """Alt+n: open the selection with the nth app other than the default (that's Enter), as
+        numbered in the status bar (Alt+0: choose any app)."""
         entries = self.chosen()
         if not entries:
             return
         if n == 0:
             return actions.choose_app(self, entries)
-        _, apps = actions.apps_for(actions.types_of(entries))
-        if n > len(apps):
-            return self.flash(f"There are {len(apps)} apps for this - Alt+1…{len(apps)}, or Alt+0 for any app",
-                              error=True)
-        actions.launch(self, apps[n - 1], entries)
+        others = actions.alternatives(*actions.apps_for(actions.types_of(entries)))
+        if n > len(others):
+            if not others:
+                return self.flash("No other app opens this - Alt+0 picks any app", error=True)
+            return self.flash(f"There are {len(others)} other apps for this - Alt+1…{len(others)}, "
+                              "or Alt+0 for any app", error=True)
+        actions.launch(self, others[n - 1], entries)
 
     def _in_columns(self):
         focus = self.get_focus()
@@ -837,6 +846,54 @@ class Window(Gtk.ApplicationWindow):
         self.options_first.grab_focus()
 
     close_options = close_keys    # (both go back to the preview, or no side pane)
+    close_actions = close_keys
+
+    def _actions_page(self):
+        """The Actions panel (Ctrl+K): the menu's actions for the selection, as rows that stay
+        while you move around (refill_actions follows the selection)."""
+        header = Gtk.Box(spacing=6)
+        self.actions_title = Gtk.Label(label="Actions", xalign=0, ellipsize=Pango.EllipsizeMode.MIDDLE)
+        self.actions_title.get_style_context().add_class("qfm-pane-heading")
+        close = Gtk.Button.new_from_icon_name("window-close-symbolic", Gtk.IconSize.MENU)
+        close.set_relief(Gtk.ReliefStyle.NONE)
+        close.set_tooltip_text("Close (Ctrl+K or Esc)")
+        close.connect("clicked", lambda *_: self.close_actions())
+        header.pack_start(self.actions_title, True, True, 0)
+        header.pack_start(close, False, False, 0)
+        self.actions_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        scroller = Gtk.ScrolledWindow(vexpand=True, hscrollbar_policy=Gtk.PolicyType.NEVER)
+        scroller.add(self.actions_box)
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6,
+                       margin_start=8, margin_end=8, margin_top=8, margin_bottom=8)
+        page.pack_start(header, False, False, 0)
+        page.pack_start(scroller, True, True, 0)
+        return page
+
+    def _after_action(self):
+        """An action in the panel ran: show what's true now (Add / Remove Bookmark, …)."""
+        GLib.timeout_add(150, lambda: (self.side.get_visible_child_name() == "actions"
+                                       and self.refill_actions(), False)[1])
+
+    def toggle_actions(self):
+        """Ctrl+K / the ☰ button: the Actions panel in the side pane, or back to the preview."""
+        if self.side.get_visible() and self.side.get_visible_child_name() == "actions":
+            return self.close_actions()
+        self.preview.stop_media()
+        self.side.set_visible_child_name("actions")
+        self.side.set_visible(True)
+        self.refill_actions()
+
+    def refill_actions(self):
+        for child in self.actions_box.get_children():
+            child.destroy()
+        entry, entries = self.selected_entry(), self.chosen()
+        if entry is None or not entries:
+            self.actions_title.set_text("Actions")
+            self.actions_box.pack_start(Gtk.Label(label="Select something", xalign=0), False, False, 0)
+        else:
+            self.actions_title.set_text(f"Actions · {actions.what(entries)}")
+            actions.fill_actions(actions.PanelSink(self.actions_box, self._after_action), self, entry, entries)
+        self.actions_box.show_all()
 
     def show_path_entry(self):
         """Ctrl+L / the ✎ button: the current folder's full path in a box, to read, copy or edit."""
@@ -1075,6 +1132,8 @@ class Window(Gtk.ApplicationWindow):
                 self.show_path_entry()
             elif key == Gdk.KEY_comma:
                 self.toggle_options()
+            elif lower == Gdk.KEY_k:
+                self.toggle_actions()
             elif lower in (Gdk.KEY_q, Gdk.KEY_w):
                 self.close()
             elif typing:
@@ -1162,7 +1221,7 @@ class Window(Gtk.ApplicationWindow):
                 return False                     # the sidebar's Esc goes back to the columns
             if self.side.get_visible_child_name() == "search":
                 self.close_search()
-            elif self.side.get_visible() and self.side.get_visible_child_name() in ("keys", "options"):
+            elif self.side.get_visible() and self.side.get_visible_child_name() in ("keys", "options", "actions"):
                 self.close_keys()
             elif self.progress.cancel_all():
                 self.flash("Cancelling…")

@@ -43,6 +43,8 @@ CSS = b"""
                    color: alpha(@theme_fg_color, 0.5); font-size: 9pt; }
 .qfm-tabs button:hover { color: alpha(@theme_fg_color, 0.8); }
 .qfm-tabs button:checked { border-bottom-color: @theme_selected_bg_color; color: @theme_fg_color; }
+.qfm-action { padding: 3px 6px; min-height: 0; }
+.qfm-action label { font-weight: normal; }
 .qfm-perms { padding: 6px 12px; border-radius: 6px; background-color: alpha(@theme_fg_color, 0.04); }
 .qfm-section { font-size: 8pt; font-weight: bold; color: alpha(@theme_fg_color, 0.45); margin-top: 6px; }
 .mono { font-family: "JetBrainsMonoNL Nerd Font", monospace; font-size: 9pt; }

@@ -3,7 +3,7 @@ Every action takes a list of entries (one or several selected items)."""
 import os
 import shutil
 
-from gi.repository import Gdk, Gio, GLib, Gtk
+from gi.repository import Gdk, Gio, GLib, Gtk, Pango
 
 from . import archive
 from .columns import describe
@@ -45,6 +45,11 @@ def apps_for(types):
     if default is not None:
         apps = [default] + [a for a in apps if a.get_id() != default.get_id()]
     return default, apps
+
+
+def alternatives(default, apps):
+    """The apps other than the default (it's what Enter does): what Alt+1…9 open with, in order."""
+    return [a for a in apps if default is None or a.get_id() != default.get_id()]
 
 
 def what(entries):
@@ -323,145 +328,202 @@ def _image(icon_name=None, gicon=None, surface=None):
     return image
 
 
-def _item(menu, text, callback=None, icon=None, key=None, mods=0, gicon=None, surface=None):
-    """A menu item with an icon, a label and (optionally) its shortcut shown on the right."""
-    item = Gtk.MenuItem()
-    box = Gtk.Box(spacing=10)
-    label = Gtk.AccelLabel(label=text, xalign=0)
-    label.set_accel_widget(item)
-    if key:
-        label.set_accel(key, mods)
-    box.pack_start(_image(icon, gicon, surface), False, False, 0)
-    box.pack_start(label, True, True, 0)
-    item.add(box)
-    if callback:
-        item.connect("activate", lambda *_: callback())
-    menu.append(item)
-    return item
+class MenuSink:
+    """Where fill_actions puts things: a Gtk.Menu (right-click, Ctrl+O)."""
+
+    def __init__(self, menu):
+        self.menu = menu
+
+    def item(self, text, callback=None, icon=None, key=None, mods=0, gicon=None, surface=None):
+        """A menu item with an icon, a label and (optionally) its shortcut shown on the right."""
+        item = Gtk.MenuItem()
+        box = Gtk.Box(spacing=10)
+        label = Gtk.AccelLabel(label=text, xalign=0)
+        label.set_accel_widget(item)
+        if key:
+            label.set_accel(key, mods)
+        box.pack_start(_image(icon, gicon, surface), False, False, 0)
+        box.pack_start(label, True, True, 0)
+        item.add(box)
+        if callback:
+            item.connect("activate", lambda *_: callback())
+        self.menu.append(item)
+        return item
+
+    def submenu(self, text, icon, open_=False):
+        sub = Gtk.Menu()
+        self.item(text, icon=icon).set_submenu(sub)
+        return MenuSink(sub)
+
+    def separator(self):
+        self.menu.append(Gtk.SeparatorMenuItem())
 
 
-def _submenu(menu, text, icon):
-    sub = Gtk.Menu()
-    _item(menu, text, icon=icon).set_submenu(sub)
-    return sub
+class PanelSink:
+    """Where fill_actions puts things: the Actions panel - a row of flat buttons per action,
+    submenus as expanders (open_: shown open)."""
+
+    def __init__(self, box, after=None):
+        self.box, self.after = box, after     # after(): called once an action has run
+
+    def item(self, text, callback=None, icon=None, key=None, mods=0, gicon=None, surface=None):
+        button = Gtk.Button(relief=Gtk.ReliefStyle.NONE, can_focus=True)
+        row = Gtk.Box(spacing=10)
+        row.pack_start(_image(icon, gicon, surface), False, False, 0)
+        row.pack_start(Gtk.Label(label=text, xalign=0, ellipsize=Pango.EllipsizeMode.END), True, True, 0)
+        if key:
+            shortcut = Gtk.Label(label=Gtk.accelerator_get_label(key, mods))
+            shortcut.get_style_context().add_class("qfm-preview-key")
+            row.pack_start(shortcut, False, False, 0)
+        button.add(row)
+        button.get_style_context().add_class("qfm-action")
+        if callback:
+            button.connect("clicked", lambda *_: (callback(), self.after and self.after()))
+        self.box.pack_start(button, False, False, 0)
+        return button
+
+    def submenu(self, text, icon, open_=False):
+        expander = Gtk.Expander(expanded=open_, margin_start=6)
+        title = Gtk.Box(spacing=10)
+        title.pack_start(_image(icon), False, False, 0)
+        title.pack_start(Gtk.Label(label=text, xalign=0, ellipsize=Pango.EllipsizeMode.END), True, True, 0)
+        expander.set_label_widget(title)
+        inside = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, margin_start=14)
+        expander.add(inside)
+        self.box.pack_start(expander, False, False, 0)
+        return PanelSink(inside, self.after)
+
+    def separator(self):
+        self.box.pack_start(Gtk.Separator(margin_top=4, margin_bottom=4), False, False, 0)
 
 
 def build_menu(win, entry, entries):
-    ctrl, shift = Gdk.ModifierType.CONTROL_MASK, Gdk.ModifierType.SHIFT_MASK
+    """The actions menu (right-click, Ctrl+O)."""
     menu = Gtk.Menu()
     menu.attach_to_widget(win, None)
+    fill_actions(MenuSink(menu), win, entry, entries)
+    menu.show_all()
+    return menu
+
+
+def fill_actions(menu, win, entry, entries):
+    """Every action for entry / entries, into menu: a MenuSink (the menu) or a PanelSink (the
+    Actions panel) - one list, so the two always match."""
+    ctrl, shift = Gdk.ModifierType.CONTROL_MASK, Gdk.ModifierType.SHIFT_MASK
     types = types_of(entries)
     default, apps = apps_for(types)
     several = len(entries) > 1
 
     if not several and entry.is_dir:
-        _item(menu, "Open", win.go_into_selection, "folder-open-symbolic", Gdk.KEY_Return)
+        menu.item("Open", win.go_into_selection, "folder-open-symbolic", Gdk.KEY_Return)
     elif default:
-        _item(menu, f"Open with {default.get_display_name()}", lambda: launch(win, default, entries),
-              "document-open-symbolic", Gdk.KEY_Return)
+        menu.item(f"Open with {default.get_display_name()}", lambda: launch(win, default, entries),
+                  "document-open-symbolic", Gdk.KEY_Return)
     if not several and program_kind(entry):
-        _item(menu, "Run", lambda: run_program(win, entry), "system-run-symbolic")
-        _item(menu, "Run in Terminal", lambda: run_program(win, entry, terminal=True), "utilities-terminal-symbolic")
+        menu.item("Run", lambda: run_program(win, entry), "system-run-symbolic")
+        menu.item("Run in Terminal", lambda: run_program(win, entry, terminal=True), "utilities-terminal-symbolic")
     if not several and entry.container:
-        _item(menu, "Look Inside", win.go_into_selection, "package-x-generic-symbolic", Gdk.KEY_Right)
-    open_with = _submenu(menu, "Open With", "system-run-symbolic")
+        menu.item("Look Inside", win.go_into_selection, "package-x-generic-symbolic", Gdk.KEY_Right)
+    open_with = menu.submenu("Open With", "system-run-symbolic", open_=True)
     alt = Gdk.ModifierType.MOD1_MASK
-    for i, app in enumerate(apps):
-        suffix = " (default)" if default and app.get_id() == default.get_id() else ""
-        _item(open_with, app.get_display_name() + suffix, lambda a=app: launch(win, a, entries), gicon=app.get_icon(),
-              key=Gdk.KEY_1 + i if i < 9 else None, mods=alt)
+    others = [a.get_id() for a in alternatives(default, apps)]
+    for app in apps:
+        is_default = app.get_id() not in others
+        n = None if is_default else others.index(app.get_id())
+        open_with.item(app.get_display_name() + (" (default)" if is_default else ""),
+                       lambda a=app: launch(win, a, entries), gicon=app.get_icon(),
+                       key=Gdk.KEY_Return if is_default else Gdk.KEY_1 + n if n < 9 else None,
+                       mods=0 if is_default else alt)
     if apps:
-        open_with.append(Gtk.SeparatorMenuItem())
-    _item(open_with, "Other Application…", lambda: choose_app(win, entries), "view-app-grid-symbolic",
-          Gdk.KEY_0, alt)
+        open_with.separator()
+    open_with.item("Other Application…", lambda: choose_app(win, entries), "view-app-grid-symbolic",
+                   Gdk.KEY_0, alt)
     if len(types) == 1:
         ct = types[0]
-        default_menu = _submenu(menu, f"Default App for {describe(ct)}", "emblem-default-symbolic")
+        default_menu = menu.submenu(f"Default App for {describe(ct)}", "emblem-default-symbolic")
         for app in apps:
             is_default = default is not None and app.get_id() == default.get_id()
-            _item(default_menu, app.get_display_name() + ("  ✓" if is_default else ""),
-                  lambda a=app: set_default(win, a, ct), gicon=app.get_icon())
+            default_menu.item(app.get_display_name() + ("  ✓" if is_default else ""),
+                              lambda a=app: set_default(win, a, ct), gicon=app.get_icon())
         if apps:
-            default_menu.append(Gtk.SeparatorMenuItem())
-        _item(default_menu, "Other Application…", lambda: choose_app(win, entries, make_default=True),
-              "view-app-grid-symbolic")
+            default_menu.separator()
+        default_menu.item("Other Application…", lambda: choose_app(win, entries, make_default=True),
+                          "view-app-grid-symbolic")
 
-    menu.append(Gtk.SeparatorMenuItem())
+    menu.separator()
     ops, targets = win.fileops, win.targets()
     read_only = ops.in_archive() or ops.in_trash()     # inside an archive, or in the trash
     if ops.in_trash():
         from . import trash
         if targets and all(trash.is_top(e.path) for e in targets):
-            _item(menu, "Restore", ops.restore, "edit-undo-symbolic")
+            menu.item("Restore", ops.restore, "edit-undo-symbolic")
     if targets and not read_only:
-        _item(menu, "Rename…" if len(targets) == 1 else f"Rename {len(targets)} Items…", ops.rename,
-              "document-edit-symbolic", Gdk.KEY_F2)
+        menu.item("Rename…" if len(targets) == 1 else f"Rename {len(targets)} Items…", ops.rename,
+                  "document-edit-symbolic", Gdk.KEY_F2)
     if targets:
-        _item(menu, f"Copy{' ' + what(targets) if len(targets) > 1 else ''}", ops.copy,
-              "edit-copy-symbolic", Gdk.KEY_c, ctrl)
+        menu.item(f"Copy{' ' + what(targets) if len(targets) > 1 else ''}", ops.copy,
+                  "edit-copy-symbolic", Gdk.KEY_c, ctrl)
         if not read_only:
-            _item(menu, f"Cut{' ' + what(targets) if len(targets) > 1 else ''}", lambda: ops.copy(cut=True),
-                  "edit-cut-symbolic", Gdk.KEY_x, ctrl)
+            menu.item(f"Cut{' ' + what(targets) if len(targets) > 1 else ''}", lambda: ops.copy(cut=True),
+                      "edit-cut-symbolic", Gdk.KEY_x, ctrl)
     if targets and not read_only:
-        _item(menu, f"Duplicate{' ' + what(targets) if len(targets) > 1 else ''}", ops.duplicate,
-              "edit-copy-symbolic", Gdk.KEY_D, ctrl | shift)
-        _item(menu, "Make Link" + ("s" if len(targets) > 1 else ""), ops.make_links, "insert-link-symbolic")
+        menu.item(f"Duplicate{' ' + what(targets) if len(targets) > 1 else ''}", ops.duplicate,
+                  "edit-copy-symbolic", Gdk.KEY_D, ctrl | shift)
+        menu.item("Make Link" + ("s" if len(targets) > 1 else ""), ops.make_links, "insert-link-symbolic")
     if not read_only:
-        _item(menu, "Paste Here", ops.paste, "edit-paste-symbolic", Gdk.KEY_v, ctrl)
-        _item(menu, "Paste as Link", ops.paste_links, "insert-link-symbolic", Gdk.KEY_V, ctrl | shift)
-        _item(menu, "New Folder…", ops.new_folder, "folder-new-symbolic", Gdk.KEY_N, ctrl | shift)
-        _item(menu, "New File…", ops.new_file, "document-new-symbolic", Gdk.KEY_n, ctrl)
-        new_from = _submenu(menu, "New From Template", "document-new-symbolic")
+        menu.item("Paste Here", ops.paste, "edit-paste-symbolic", Gdk.KEY_v, ctrl)
+        menu.item("Paste as Link", ops.paste_links, "insert-link-symbolic", Gdk.KEY_V, ctrl | shift)
+        menu.item("New Folder…", ops.new_folder, "folder-new-symbolic", Gdk.KEY_N, ctrl | shift)
+        menu.item("New File…", ops.new_file, "document-new-symbolic", Gdk.KEY_n, ctrl)
+        new_from = menu.submenu("New From Template", "document-new-symbolic")
         for name, source in templates.available():
             is_dir = isinstance(source, str) and os.path.isdir(source)
             ct = "inode/directory" if is_dir else Gio.content_type_guess(name, None)[0]
-            _item(new_from, name, lambda t=(name, source): ops.new_file(t), gicon=Gio.content_type_get_icon(ct))
-        new_from.append(Gtk.SeparatorMenuItem())
+            new_from.item(name, lambda t=(name, source): ops.new_file(t), gicon=Gio.content_type_get_icon(ct))
+        new_from.separator()
         if os.path.isdir(templates.folder()):
-            _item(new_from, "Open Templates Folder", lambda: win.go_to(templates.folder()), "folder-open-symbolic")
+            new_from.item("Open Templates Folder", lambda: win.go_to(templates.folder()), "folder-open-symbolic")
         else:
-            _item(new_from, "Customize Templates…", ops.customize_templates, "document-edit-symbolic")
+            new_from.item("Customize Templates…", ops.customize_templates, "document-edit-symbolic")
     if targets and not read_only:
-        _item(menu, "Move to Trash", ops.trash, "user-trash-symbolic", Gdk.KEY_Delete)
+        menu.item("Move to Trash", ops.trash, "user-trash-symbolic", Gdk.KEY_Delete)
     if targets and not ops.in_archive():
-        _item(menu, "Delete Permanently…", ops.delete, "edit-delete-symbolic", Gdk.KEY_Delete, shift)
+        menu.item("Delete Permanently…", ops.delete, "edit-delete-symbolic", Gdk.KEY_Delete, shift)
     if ops.in_trash():
-        _item(menu, "Empty Trash…", ops.empty_trash, "user-trash-full-symbolic")
+        menu.item("Empty Trash…", ops.empty_trash, "user-trash-full-symbolic")
 
     # archives: compress the selection, extract archives (or things inside one)
     archives = [e for e in targets if e.archive is None and not e.is_dir and archive.is_archive(e.name)]
     if targets or archives:
-        menu.append(Gtk.SeparatorMenuItem())
+        menu.separator()
     if targets and not read_only:
-        _item(menu, "Compress…", ops.compress, "package-x-generic-symbolic")
+        menu.item("Compress…", ops.compress, "package-x-generic-symbolic")
     if archives and len(archives) == len(targets):
-        _item(menu, "Extract Here", ops.extract_here, "archive-extract-symbolic")
+        menu.item("Extract Here", ops.extract_here, "archive-extract-symbolic")
     if (archives and len(archives) == len(targets)) or (ops.in_archive() and targets):
-        _item(menu, "Extract To…", ops.extract_to, "folder-download-symbolic")
+        menu.item("Extract To…", ops.extract_to, "folder-download-symbolic")
 
-    menu.append(Gtk.SeparatorMenuItem())
-    _item(menu, "Show in File Manager", lambda: reveal(win, entries), "system-file-manager-symbolic",
-          Gdk.KEY_e, ctrl)
-    _item(menu, "Open Terminal Here", win.open_terminal_here, "utilities-terminal-symbolic", Gdk.KEY_F4)
-    _item(menu, "Copy Path" + ("s" if several else ""), lambda: copy_path(win, entries), "insert-link-symbolic",
-          Gdk.KEY_C, ctrl | shift)
+    menu.separator()
+    menu.item("Show in File Manager", lambda: reveal(win, entries), "system-file-manager-symbolic",
+              Gdk.KEY_e, ctrl)
+    menu.item("Open Terminal Here", win.open_terminal_here, "utilities-terminal-symbolic", Gdk.KEY_F4)
+    menu.item("Copy Path" + ("s" if several else ""), lambda: copy_path(win, entries), "insert-link-symbolic",
+              Gdk.KEY_C, ctrl | shift)
     if all(e.archive is None for e in entries) and not ops.in_trash():
-        menu.append(Gtk.SeparatorMenuItem())
+        menu.separator()
         bookmarked = all(e.path in win.store.bookmarks for e in entries)
-        _item(menu, "Remove Bookmark" if bookmarked else "Add Bookmark", win.toggle_bookmark,
-              "non-starred-symbolic" if bookmarked else "starred-symbolic", Gdk.KEY_d, ctrl)
+        menu.item("Remove Bookmark" if bookmarked else "Add Bookmark", win.toggle_bookmark,
+                  "non-starred-symbolic" if bookmarked else "starred-symbolic", Gdk.KEY_d, ctrl)
     folders = [e for e in entries if e.is_dir and e.archive is None]
     if folders:
-        colors = _submenu(menu, "Folder Color", "preferences-color-symbolic")
+        colors = menu.submenu("Folder Color", "preferences-color-symbolic")
         current = {win.store.colors.get(e.path) for e in folders}
         for i, name in enumerate(COLORS):
             mark = "  ✓" if current == {name} else ""
-            _item(colors, name.capitalize() + mark, lambda n=name: win.set_color(n), key=Gdk.KEY_1 + i, mods=ctrl,
-                  surface=win.icons.surface(win.icons.get("inode/directory", 16, name)))
-        _item(colors, "None", lambda: win.set_color(None), key=Gdk.KEY_0, mods=ctrl,
-              surface=win.icons.surface(win.icons.get("inode/directory", 16)))
-    menu.show_all()
-    return menu
+            colors.item(name.capitalize() + mark, lambda n=name: win.set_color(n), key=Gdk.KEY_1 + i, mods=ctrl,
+                        surface=win.icons.surface(win.icons.get("inode/directory", 16, name)))
+        colors.item("None", lambda: win.set_color(None), key=Gdk.KEY_0, mods=ctrl,
+                    surface=win.icons.surface(win.icons.get("inode/directory", 16)))
 
 
 # -- the apps that open the selection (the status bar) --------------------------
@@ -513,9 +575,11 @@ class AppRow(Gtk.Box):
                 self.pack_start(button, False, False, 0)
             self.pack_start(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL, margin_start=2, margin_end=2),
                             False, False, 0)
-        for i, app in enumerate(apps + [None]):
+        others = [a.get_id() for a in alternatives(default, apps)]
+        for app in apps + [None]:
             button = Gtk.Button(relief=Gtk.ReliefStyle.NONE, can_focus=False)
-            number = 0 if app is None else i + 1     # Alt+number opens with it
+            # Alt+number opens with it: the default has none (Enter), the others 1…9, "other app" 0
+            number = 0 if app is None else others.index(app.get_id()) + 1 if app.get_id() in others else None
             if app is None:
                 image = Gtk.Image.new_from_icon_name("view-app-grid-symbolic", Gtk.IconSize.BUTTON)
                 button.set_tooltip_text(f"Open {label} with another app… (Alt+0)")
@@ -527,14 +591,14 @@ class AppRow(Gtk.Box):
                 is_default = default is not None and app.get_id() == default.get_id()
                 button.set_tooltip_text(f"Open {label} with {app.get_display_name()}"
                                         + (" (default)" if is_default else "")
-                                        + (f" (Alt+{number})" if number <= 9 else ""))
+                                        + (" - Enter" if is_default else f" (Alt+{number})" if number <= 9 else ""))
                 if is_default:
                     button.get_style_context().add_class("qfm-default-app")
                 button.connect("clicked", lambda _, a=app: launch(win, a, entries))
             image.set_pixel_size(self.SIZE)
             overlay = Gtk.Overlay()
             overlay.add(image)
-            if number <= 9:
+            if number is not None and number <= 9:
                 badge = Gtk.Label(label=str(number), halign=Gtk.Align.END, valign=Gtk.Align.END)
                 badge.get_style_context().add_class("qfm-app-number")
                 overlay.add_overlay(badge)

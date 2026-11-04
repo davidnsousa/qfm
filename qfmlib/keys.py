@@ -22,8 +22,9 @@ SHORTCUTS = [
     ("Open", [
         ("Enter / double-click on a file", "open it with its default app"),
         ("Enter on a program or script", "asks: run it, run it in a terminal (stays open), or open it"),
-        ("Alt+1 … Alt+9", "open with app 1…9 in the status bar"),
+        ("Alt+1 … Alt+9", "open with another app: the numbered ones in the status bar (Enter: the default, ringed)"),
         ("Alt+0", "open with any other app"),
+        ("Ctrl+K / ☰ button", "the Actions panel: the menu's actions as a list that follows the selection"),
         ("Ctrl+O / Menu / Copilot key / Shift+F10", "the actions menu (also right-click)"),
         ("F4 / terminal button (status bar)", "open a terminal in this folder"),
         ("Ctrl+E", "show in the system file manager"),

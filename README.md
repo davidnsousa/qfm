@@ -15,8 +15,10 @@ A keyboard-driven file manager for Linux (GTK3) with Miller columns.
   page of PDFs, Illustrator, PostScript and EPS files, and 3D models (STL, OBJ, PLY), and
   plays video and audio. Preview and Properties are two tabs (Ctrl+I), or one panel
   (Options). Permissions can be changed in Properties with checkboxes.
-- The status bar shows the applications that can open the selection; click one, or press
-  Alt+1 to Alt+9, to open it with that app.
+- The status bar shows the applications that can open the selection; the default (ringed)
+  is what Enter does, Alt+1 to Alt+9 open with the others.
+- The Actions panel (Ctrl+K) lists everything the right-click menu has, with shortcuts, and
+  follows the selection.
 - Archives (zip, tar, 7z, rar, iso) can be browsed like folders, and files can be copied out
   of them. The menu has Compress, Extract Here and Extract To.
 - Files that are archives inside (Office and LibreOffice documents, EPUB, comic books, JAR,
