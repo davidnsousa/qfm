@@ -44,6 +44,7 @@ class Window(Gtk.ApplicationWindow):
         self.store = Store()
         self.options = options = self.store.options
         self.icons = style.Icons()
+        self.back, self.forward = [], []     # history of jumps (go_to): [(folder, selected name)]
         self.current = None          # the selected Entry (or the focused folder's, if none)
         self.many = None             # every selected Entry when several are, else None
         self._closing = False
@@ -173,6 +174,11 @@ class Window(Gtk.ApplicationWindow):
         self.add(layout)
         self.connect("key-press-event", self._on_key)
         self.connect("delete-event", self._on_delete)
+        # the mouse's back / forward (side) buttons, caught before the lists under the pointer
+        self._side_buttons = Gtk.GestureMultiPress.new(self)
+        self._side_buttons.set_button(0)
+        self._side_buttons.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        self._side_buttons.connect("pressed", self._on_side_button)
         self.connect("destroy", lambda *_: setattr(self, "_destroyed", True))
         self._destroyed = False
         self.rebuild_sidebar()
@@ -194,9 +200,15 @@ class Window(Gtk.ApplicationWindow):
 
     # -- navigation ----------------------------------------------------------
 
-    def go_to(self, path):
-        """Show path: a folder opens focused, a file is selected in its folder."""
+    def go_to(self, path, remember=True):
+        """Show path: a folder opens focused, a file is selected in its folder. remember: a jump
+        Alt+← can come back from (steps between columns aren't: they stay in view)."""
         path = os.path.abspath(os.path.expanduser(path))
+        here = self.here()
+        if remember and here and path not in (here[0], os.path.join(*here)):
+            self.back.append(here)
+            del self.back[:-50]
+            self.forward.clear()
         inside = None if os.path.exists(path) else archive.split(path)
         if inside and inside[1]:     # inside an archive: open a folder, select a file
             try:
@@ -218,6 +230,33 @@ class Window(Gtk.ApplicationWindow):
             self.view.go_to(path)
         else:
             self.view.go_to(os.path.dirname(path), select=os.path.basename(path))
+
+    def here(self):
+        """Where you are, for the history: (the focused column's folder, the selected name or "")."""
+        column = self.view.focused_column
+        if column is None:
+            return None
+        return column.path, column.selected.name if column.selected is not None else ""
+
+    def go_back(self, forward=False):
+        """Alt+← / Alt+→ (and the mouse's back / forward buttons): the places jumped from."""
+        source, other = (self.forward, self.back) if forward else (self.back, self.forward)
+        if not source:
+            return self.flash("Nothing further forward" if forward else "No earlier place to go back to")
+        here = self.here()
+        if here:
+            other.append(here)
+        folder, name = source.pop()
+        if name and (os.path.isdir(folder) or archive.split(folder)):
+            self.view.go_to(folder, select=name)      # selected again, not entered
+        else:
+            self.go_to(folder, remember=False)
+
+    def _on_side_button(self, gesture, *_):
+        button = gesture.get_current_button()
+        if button in (8, 9):
+            gesture.set_state(Gtk.EventSequenceState.CLAIMED)
+            self.go_back(forward=button == 9)
 
     def go_into_selection(self):
         column = self.view.focused_column
@@ -1060,6 +1099,9 @@ class Window(Gtk.ApplicationWindow):
             if typing or not self._in_columns():
                 self.focus_columns()
             self.show_menu()
+            return True
+        if mods == Gdk.ModifierType.MOD1_MASK and key in (Gdk.KEY_Left, Gdk.KEY_Right) and not typing:
+            self.go_back(forward=key == Gdk.KEY_Right)
             return True
         if mods == Gdk.ModifierType.MOD1_MASK and Gdk.KEY_0 <= key <= Gdk.KEY_9 and not typing:
             self.open_with_number(key - Gdk.KEY_0)

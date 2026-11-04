@@ -9,6 +9,7 @@ SHORTCUTS = [
         ("letters", "jump to a matching name"),
         ("Ctrl+L / ✎ button", "the path as text: copy it, or type one (Tab completes, Enter goes)"),
         ("Ctrl+F / 🔍 button", "filter the column; Enter searches everything below it"),
+        ("Alt+← / Alt+→ (mouse back / forward)", "back / forward through the places you jumped to"),
         ("Ctrl+B", "show / focus / hide the bookmarks sidebar"),
         ("Delete (in the sidebar)", "remove the selected bookmark"),
     ]),
