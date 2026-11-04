@@ -92,24 +92,46 @@ class Icons:
         self.clear()
         return True
 
-    def get(self, content_type, size=16, color=None):
-        key = (content_type, size, color)
+    def get(self, content_type, size=16, color=None, repo=False):
+        """repo: a git repository's folder (the theme's folder-git icon, else a git mark on the folder)."""
+        key = (content_type, size, color, repo)
         pixbuf = self.cache.get(key)
         if pixbuf is None:
             flags = Gtk.IconLookupFlags.FORCE_SIZE
-            info = (self.theme.lookup_by_gicon_for_scale(Gio.content_type_get_icon(content_type), size, self.scale, flags)
+            info = repo and self.theme.lookup_icon_for_scale("folder-git", size, self.scale, flags)
+            themed = bool(info)
+            info = (info or self.theme.lookup_by_gicon_for_scale(Gio.content_type_get_icon(content_type), size,
+                                                                self.scale, flags)
                     or self.theme.lookup_icon_for_scale("text-x-generic", size, self.scale, flags))
-            try:
-                pixbuf = info.load_icon() if info else None
-            except GLib.Error:
-                pixbuf = None
+            pixbuf = self._load(info)
+            if pixbuf is not None and repo and not themed:
+                pixbuf = self._mark(pixbuf, size)
             if pixbuf is not None and color in COLORS:
                 pixbuf = tint(pixbuf, COLORS[color])
             self.cache[key] = pixbuf
         return pixbuf
 
+    @staticmethod
+    def _load(info):
+        try:
+            return info.load_icon() if info else None
+        except GLib.Error:
+            return None
+
+    def _mark(self, pixbuf, size):
+        """pixbuf with the theme's git icon in its bottom-right corner."""
+        half = max(8, size // 2)
+        mark = self._load(self.theme.lookup_icon_for_scale("git", half, self.scale, Gtk.IconLookupFlags.FORCE_SIZE))
+        if mark is None:
+            return pixbuf
+        pixbuf = pixbuf.copy()
+        w, h = mark.get_width(), mark.get_height()
+        x, y = pixbuf.get_width() - w, pixbuf.get_height() - h
+        mark.composite(pixbuf, x, y, w, h, x, y, 1, 1, GdkPixbuf.InterpType.BILINEAR, 255)
+        return pixbuf
+
     def for_entry(self, entry, colors, size=16):
-        return self.get(entry.content_type, size, colors.get(entry.path) if entry.is_dir else None)
+        return self.get(entry.content_type, size, colors.get(entry.path) if entry.is_dir else None, entry.repo)
 
     def surface(self, pixbuf):
         """pixbuf (from get()) as a cairo surface drawn at its logical size."""

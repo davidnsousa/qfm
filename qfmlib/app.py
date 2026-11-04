@@ -10,7 +10,7 @@ from gi.repository import Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
 
 from . import actions, archive, fm1, media, style, trash  # noqa: E402
 from .fileops import FileOps  # noqa: E402
-from .columns import HOME, Entry, MillerView, describe, human_date, human_size, short_path  # noqa: E402
+from .columns import HOME, Entry, MillerView, describe, git_branch, human_date, human_size, short_path  # noqa: E402
 from .preview import Preview  # noqa: E402
 from .promptbar import ProgressArea, PromptBar, complete_folder, matches_hint  # noqa: E402
 from .keyspane import KeysPane  # noqa: E402
@@ -377,7 +377,9 @@ class Window(Gtk.ApplicationWindow):
         elif entry is None:
             self.status_left.set_text("")
         elif entry.is_dir:
-            self.status_left.set_text(f"{entry.display}  ·  folder  ·  modified {human_date(entry.modified)}")
+            branch = entry.repo and git_branch(entry.path)
+            kind = f"git repository on {branch}" if branch else "git repository" if entry.repo else "folder"
+            self.status_left.set_text(f"{entry.display}  ·  {kind}  ·  modified {human_date(entry.modified)}")
         else:
             self.status_left.set_text(f"{entry.display}  ·  {describe(entry.content_type)}  ·  "
                                       f"{human_size(entry.size)}  ·  modified {human_date(entry.modified)}")

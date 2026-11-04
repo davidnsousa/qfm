@@ -48,9 +48,10 @@ class Entry:
     """One file or folder."""
     __slots__ = ("name", "display", "path", "is_dir", "size", "modified", "created",
                  "content_type", "hidden", "symlink", "key",
-                 "archive", "inner", "browsable")
+                 "archive", "inner", "browsable", "repo")
     # archive/inner: for something inside an archive, the archive file and its member path
-    # (else None). browsable: opens as a column - folders, and archive files
+    # (else None). browsable: opens as a column - folders, and archive files. repo: a folder
+    # that's a git repository (set after listing, see Column._check_repos)
 
     @classmethod
     def from_info(cls, folder, info):
@@ -70,6 +71,7 @@ class Entry:
         e.key = GLib.utf8_collate_key_for_filename(e.display, -1)
         e.archive = e.inner = None
         e.browsable = e.is_dir or archive.is_archive(e.name)
+        e.repo = False
         return e
 
     @classmethod
@@ -87,6 +89,7 @@ class Entry:
         e.key = GLib.utf8_collate_key_for_filename(m.name, -1)
         e.archive, e.inner = archive_path, m.inner
         e.browsable = m.is_dir      # (archives inside archives aren't browsed)
+        e.repo = False
         return e
 
     @classmethod
@@ -100,7 +103,32 @@ class Entry:
         entry.path = path   # keeps "/" as "/"
         if path == "/":
             entry.display = "/"
+        entry.repo = entry.is_dir and is_repo(path)
         return entry
+
+
+def is_repo(path):
+    """path is a git repository (.git is a folder, or a file for worktrees and submodules)."""
+    return os.path.exists(os.path.join(path, ".git"))
+
+
+def git_branch(path):
+    """The branch checked out in the repository at path (a short commit when detached), or None."""
+    git = os.path.join(path, ".git")
+    try:
+        if os.path.isfile(git):                  # "gitdir: <where the repository is>"
+            with open(git, encoding="utf-8") as f:
+                line = f.readline().strip()
+            if not line.startswith("gitdir:"):
+                return None
+            git = os.path.join(path, line[7:].strip())
+        with open(os.path.join(git, "HEAD"), encoding="utf-8") as f:
+            head = f.readline().strip()
+    except (OSError, UnicodeDecodeError):
+        return None
+    if head.startswith("ref: "):
+        return head[5:].removeprefix("refs/heads/")
+    return head[:7] or None
 
 
 def column_width(options):
@@ -255,7 +283,11 @@ class Column(Gtk.Overlay):
             else:
                 enumerator.close(None)
                 if not cancellable.is_cancelled():
+                    known = {e.path for e in self.entries if e.repo}
+                    for e in entries:
+                        e.repo = e.is_dir and e.path in known   # as before until checked again
                     self._loaded(entries)
+                    self._check_repos(entries, cancellable)
 
         def on_enumerator(gfile, result):
             try:
@@ -266,6 +298,35 @@ class Column(Gtk.Overlay):
 
         self.gfile.enumerate_children_async(ATTRIBUTES, Gio.FileQueryInfoFlags.NONE,
                                             GLib.PRIORITY_DEFAULT, cancellable, on_enumerator)
+
+    def _check_repos(self, entries, cancellable):
+        """Which folders are git repositories, found in a thread (a slow disk mustn't block the
+        list); the ones that changed get their icon updated in place."""
+        folders = [e for e in entries if e.is_dir]
+        if not folders:
+            return
+
+        def work():
+            found = {e.path for e in folders if is_repo(e.path)}
+            GLib.idle_add(done, found)
+
+        def done(found):
+            if cancellable.is_cancelled():
+                return False
+            changed = {e for e in folders if e.repo != (e.path in found)}
+            for e in changed:
+                e.repo = e.path in found
+            if changed:
+                icons, colors = self.view.icons, self.view.store.colors
+                for row in self.store:
+                    e = self.visible[row[C_INDEX]]
+                    if e in changed:
+                        row[C_ICON] = icons.for_entry(e, colors)
+                if self.view.window.current in changed:
+                    self.view.window._update_status()    # "git repository on <branch>"
+            return False
+
+        threading.Thread(target=work, daemon=True).start()
 
     def _load_archive(self, cancellable):
         """Read the archive's listing in a thread (a big .tar.gz takes a while)."""

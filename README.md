@@ -21,6 +21,7 @@ A keyboard-driven file manager for Linux (GTK3) with Miller columns.
 - Files can be copied and pasted between qfm and other file managers.
 - Optionally, qfm can be the default application for folders and for other applications'
   "Show in folder".
+- Git repositories have their own folder icon, and the status bar shows their branch.
 - Bookmarks, folder colors, trash, removable drives, search, multiple selection, and copy
   progress with cancel.
 
