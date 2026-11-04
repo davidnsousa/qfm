@@ -16,6 +16,7 @@ SHORTCUTS = [
     ("Select", [
         ("Shift+↑ ↓ / Shift+click", "extend the selection"),
         ("Ctrl+click", "add or remove an item"),
+        ("Ctrl+S", "select matching: *.jpg, IMG_*, or text the names contain"),
         ("Ctrl+A", "select everything in the column"),
     ]),
     ("Open", [

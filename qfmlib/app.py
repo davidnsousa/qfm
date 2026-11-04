@@ -1,4 +1,5 @@
 """The qfm window, and the single-instance Gtk.Application around it."""
+import fnmatch
 import os
 import sys
 
@@ -257,6 +258,43 @@ class Window(Gtk.ApplicationWindow):
         if button in (8, 9):
             gesture.set_state(Gtk.EventSequenceState.CLAIMED)
             self.go_back(forward=button == 9)
+
+    def select_matching(self):
+        """Ctrl+S: select the focused column's items whose names match a pattern (* ? [...]:
+        like the shell; plain text: names containing it), case-insensitive."""
+        column = self.view.focused_column
+        if column is None:
+            return
+
+        def matches(pattern):
+            pattern = pattern.strip().casefold()
+            if not pattern:
+                return []
+            if not any(c in pattern for c in "*?["):
+                pattern = f"*{pattern}*"
+            return [e for e in column.visible if fnmatch.fnmatchcase(e.name.casefold(), pattern)]
+
+        def preview(pattern):
+            found = matches(pattern)
+            if not pattern.strip():
+                return "* = anything, ? = one character, plain text = names containing it", False
+            if not found:
+                return "Nothing matches", True
+            names = ", ".join(e.name for e in found[:3])
+            return f"{len(found)} match{'es' if len(found) != 1 else ''}: {names}{', …' if len(found) > 3 else ''}", False
+
+        def select(pattern):
+            found = matches(pattern)
+            if not found:
+                return "Nothing matches"
+            self.prompt.close(refocus=False)
+            column.tree.grab_focus()
+            column.select_names([e.name for e in found])
+            self.view.selected(column, column.selected)
+            self.flash(f"Selected {len(found)} item{'s' if len(found) != 1 else ''}")
+
+        self.prompt.ask_fields("Select matching:", [("*.jpg, IMG_*, report…", "")], select, "Select",
+                               on_change=preview)
 
     def go_into_selection(self):
         column = self.view.focused_column
@@ -1056,6 +1094,8 @@ class Window(Gtk.ApplicationWindow):
                 self.view.reload()
             elif lower == Gdk.KEY_z:
                 self.fileops.undo()
+            elif lower == Gdk.KEY_s and self.view.focused_column is not None:
+                self.select_matching()
             elif lower == Gdk.KEY_n and self._in_columns():
                 self.fileops.new_file()
             elif lower == Gdk.KEY_p and self.preview.media_active:
