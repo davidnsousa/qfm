@@ -30,6 +30,8 @@ A keyboard-driven file manager for Linux (GTK3) with Miller columns.
 - Alt+← and Alt+→ (or the mouse's back and forward buttons) go back and forward through the
   places you jumped to.
 - The Size column (Options) shows folder sizes too, added up in the background.
+- Optional thumbnails in the columns (Options; off by default) for images, PDFs and 3D
+  models - and videos with a video thumbnailer installed - shared with other file managers.
 - Ctrl+Z undoes rename, move, copy, move to trash, restore, new folder or file, duplicate,
   links, compress and extract.
 - Files can be copied and pasted between qfm and other file managers.

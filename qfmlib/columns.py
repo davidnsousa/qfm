@@ -6,7 +6,7 @@ import time
 
 from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk, Pango
 
-from . import archive, style, trash
+from . import archive, style, thumbs, trash
 
 ATTRIBUTES = ",".join((
     "standard::name", "standard::display-name", "standard::type", "standard::size",
@@ -360,7 +360,7 @@ class Column(Gtk.Overlay):
                 for row in self.store:
                     e = self.visible[row[C_INDEX]]
                     if e in changed:
-                        row[C_ICON] = icons.for_entry(e, colors)
+                        row[C_ICON] = self.icon_for(e)
                 if self.view.window.current in changed:
                     self.view.window._update_status()    # "git repository on <branch>"
             return False
@@ -454,6 +454,7 @@ class Column(Gtk.Overlay):
 
     def close(self):
         """Stop loading and watching (the column is going away)."""
+        self._thumb_token = getattr(self, "_thumb_token", 0) + 1
         self._size_token = getattr(self, "_size_token", 0) + 1
         if self.cancellable:
             self.cancellable.cancel()
@@ -471,6 +472,44 @@ class Column(Gtk.Overlay):
             column.set_visible(key in shown)
         self.set_size_request(-1 if self.view.fit else column_width(self.view.options), -1)
         self._size_folders()
+
+    def icon_for(self, e):
+        """The row's picture: its thumbnail if there's one (Options: Thumbnails), else its icon."""
+        size = self.view.icon_size
+        thumb = self.view.thumb_cache.get((e.path, e.modified, size * self.view.icons.scale))
+        return thumb or self.view.icons.for_entry(e, self.view.store.colors, size)
+
+    def _thumbnails(self):
+        """With Thumbnails on: each file's thumbnail (cached or made, in a thread, in list order),
+        replacing its icon as it comes."""
+        self._thumb_token = getattr(self, "_thumb_token", 0) + 1
+        if not self.view.options["thumbnails"] or self.archive is not None:
+            return
+        pixels = self.view.icon_size * self.view.icons.scale
+        cache = self.view.thumb_cache
+        todo = [e for e in self.visible if (e.path, e.modified, pixels) not in cache and thumbs.can_thumbnail(e)]
+        if not todo:
+            return
+        token = self._thumb_token
+
+        def work():
+            for e in todo:
+                if token != self._thumb_token:
+                    return
+                picture = thumbs.thumbnail(e, pixels)
+                if picture is not None:
+                    GLib.idle_add(done, e, picture)
+
+        def done(e, picture):
+            cache[(e.path, e.modified, pixels)] = picture
+            if token == self._thumb_token:
+                for row in self.store:
+                    if self.visible[row[C_INDEX]] is e:
+                        row[C_ICON] = picture
+                        break
+            return False
+
+        threading.Thread(target=work, daemon=True).start()
 
     def _size_folders(self):
         """With the Size column shown, or sorting by size: add up each folder's size in a thread
@@ -524,14 +563,14 @@ class Column(Gtk.Overlay):
 
         previous, previous_names = self.selected, [e.name for e in self.marked]
         scroll = self.tree.get_vadjustment().get_value()
-        icons, colors = self.view.icons, self.view.store.colors
         self._quiet += 1
         self.tree.set_model(None)
         self.store.clear()
         insert = self.store.insert_with_valuesv   # much faster than append() for big folders
         for i, e in enumerate(self.visible):
-            insert(-1, STORE_COLUMNS, [icons.for_entry(e, colors), e.display, arrow_for(e), i])
+            insert(-1, STORE_COLUMNS, [self.icon_for(e), e.display, arrow_for(e), i])
         self.tree.set_model(self.store)
+        self._thumbnails()
         self.selected, self.marked = None, []
         if previous_names:
             wanted = set(previous_names)
@@ -763,6 +802,7 @@ class MillerView(Gtk.ScrolledWindow):
         self.icons = window.icons
         self.columns = []
         self.folder_sizes = {}    # folder path -> (when, "12.3 MB", bytes) for the Size column and sorting
+        self.thumb_cache = {}     # (path, modified, pixels) -> thumbnail pixbuf (Options: Thumbnails)
         self.focus_index = 0
         self._focus_selected = False
         self._open_timer = 0
@@ -816,6 +856,11 @@ class MillerView(Gtk.ScrolledWindow):
         del self.columns[index + 1:]
         self.focus_index = max(0, min(self.focus_index, index))
         self._layout()
+
+    @property
+    def icon_size(self):
+        """The rows' pictures: 16 px, or 40 with thumbnails (big enough to see what's in them)."""
+        return 40 if self.options["thumbnails"] else 16
 
     @property
     def fit(self):

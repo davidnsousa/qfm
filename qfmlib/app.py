@@ -583,6 +583,25 @@ class Window(Gtk.ApplicationWindow):
         if self.side.get_visible_child_name() == "search":
             self.close_search()
 
+    def switch_pane(self):
+        """F6: from the columns to the side panel showing (Actions, Options, keys, search) and
+        back, leaving it open."""
+        if not self._in_columns():
+            return self.focus_columns()
+        if not self.side.get_visible():
+            return self.flash("No side panel is open")
+        page = self.side.get_visible_child_name()
+        if page == "actions":
+            self.focus_actions()
+        elif page == "options":
+            self.options_first.grab_focus()
+        elif page == "keys":
+            self.keys.filter.grab_focus()
+        elif page == "search":
+            self.search.focus()
+        else:
+            self.flash("The preview has nothing to focus - F6 works with Actions, Options, keys and search")
+
     def focus_columns(self):
         column = self.view.focused_column
         if column is not None:
@@ -1088,6 +1107,11 @@ class Window(Gtk.ApplicationWindow):
         self.hidden_check = Gtk.CheckButton(label="Hidden files (Ctrl+H)", active=self.options["show_hidden"])
         self.hidden_check.connect("toggled", lambda b: self._set_option("show_hidden", b.get_active()))
         box.pack_start(self.hidden_check, False, False, 0)
+        thumbnails = Gtk.CheckButton(label="Thumbnails (bigger rows)", active=self.options["thumbnails"])
+        thumbnails.connect("toggled", lambda b: self._set_option("thumbnails", b.get_active()))
+        box.pack_start(thumbnails, False, False, 0)
+        note("Pictures of images, PDFs and 3D models, shared with other file managers' "
+             "thumbnail cache. Videos too once a video thumbnailer (ffmpegthumbnailer) is installed.")
         heading("Preview")
         tabs = Gtk.RadioButton(label="Tabs: Preview and Properties", active=self.options["preview_layout"] == "tabs")
         single = Gtk.RadioButton(label="One panel, properties below", group=tabs,
@@ -1214,6 +1238,9 @@ class Window(Gtk.ApplicationWindow):
             return True
         if key == Gdk.KEY_F1 and mods == 0:
             self.toggle_keys()
+            return True
+        if key == Gdk.KEY_F6 and mods == 0:
+            self.switch_pane()
             return True
         if mods == ctrl:
             lower = Gdk.keyval_to_lower(key)

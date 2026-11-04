@@ -22,6 +22,7 @@ DEFAULT_OPTIONS = {
     "details": [],           # extra columns shown: type, size, modified, created
     "fit_columns": True,     # the shown columns split the width (at most max_columns); False: they scroll
     "max_columns": 3,
+    "thumbnails": False,     # pictures of images, PDFs, models… in the columns (bigger rows)
     "preview": True,
     "preview_layout": "tabs",  # tabs: Preview | Properties; single: properties below the preview
     "preview_tab": "preview",  # the tab last chosen
