@@ -22,6 +22,7 @@ SHORTCUTS = [
         ("Alt+1 … Alt+9", "open with app 1…9 in the status bar"),
         ("Alt+0", "open with any other app"),
         ("Ctrl+O / Menu / Copilot key / Shift+F10", "the actions menu (also right-click)"),
+        ("F4 / terminal button (status bar)", "open a terminal in this folder"),
         ("Ctrl+E", "show in the system file manager"),
     ]),
     ("Files", [

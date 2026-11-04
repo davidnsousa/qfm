@@ -95,23 +95,37 @@ TERMINALS = (("xdg-terminal-exec", []), ("alacritty", ["-e"]), ("kitty", []), ("
 
 
 def find_terminal():
-    """[terminal, its run-this flag…] or None."""
+    """([the terminal and its options], [what goes before a command to run in it]) or None."""
     named = os.environ.get("TERMINAL", "").split()
     if named and shutil.which(named[0]):
-        flags = dict(TERMINALS).get(os.path.basename(named[0]), ["-e"])
-        return named + ([] if len(named) > 1 else flags)
+        return named, dict(TERMINALS).get(os.path.basename(named[0]), ["-e"])
     for name, flags in TERMINALS:
         if shutil.which(name):
-            return [name, *flags]
+            return [name], flags
     return None
+
+
+def open_terminal(win, folder):
+    """A terminal (no command: its shell) in folder."""
+    found = find_terminal()
+    if found is None:
+        return win.flash("No terminal found - install one, or set $TERMINAL", error=True)
+    launcher = Gio.SubprocessLauncher.new(Gio.SubprocessFlags.NONE)
+    launcher.set_cwd(folder)
+    try:
+        launcher.spawnv(found[0])
+    except GLib.Error as err:
+        return win.flash(f"Could not open a terminal: {err.message}", error=True)
+    win.flash(f"Opened a terminal in {folder}")
 
 
 def run_in_terminal(app, paths):
     """Start a Terminal=true app (its desktop file's Exec, with paths) in a terminal, in the
     first path's folder; once per path if the Exec takes one file at a time (%f, %u)."""
-    terminal = find_terminal()
-    if terminal is None:
+    found = find_terminal()
+    if found is None:
         raise OSError("no terminal found - install one, or set $TERMINAL")
+    terminal = found[0] + found[1]
     ok, argv = GLib.shell_parse_argv(app.get_string("Exec") or "")
     single = any(code in arg for arg in argv for code in ("%f", "%u"))
     for group in ([[p] for p in paths] or [[]]) if single else [paths]:
@@ -338,6 +352,7 @@ def build_menu(win, entry, entries):
     menu.append(Gtk.SeparatorMenuItem())
     _item(menu, "Show in File Manager", lambda: reveal(win, entries), "system-file-manager-symbolic",
           Gdk.KEY_e, ctrl)
+    _item(menu, "Open Terminal Here", win.open_terminal_here, "utilities-terminal-symbolic", Gdk.KEY_F4)
     _item(menu, "Copy Path" + ("s" if several else ""), lambda: copy_path(win, entries), "insert-link-symbolic",
           Gdk.KEY_C, ctrl | shift)
     if all(e.archive is None for e in entries) and not ops.in_trash():

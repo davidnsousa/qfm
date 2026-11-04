@@ -159,6 +159,10 @@ class Window(Gtk.ApplicationWindow):
         status.pack_start(self.apps, False, False, 0)
         status.pack_start(self.status_left, True, True, 0)
         status.pack_start(self.status_right, False, False, 0)
+        terminal = icon_button("utilities-terminal-symbolic", "Open a terminal here (F4)")
+        terminal.get_style_context().add_class("qfm-app")
+        terminal.connect("clicked", lambda *_: self.open_terminal_here())
+        status.pack_start(terminal, False, False, 0)
 
         layout = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         layout.pack_start(toolbar, False, False, 0)
@@ -609,6 +613,16 @@ class Window(Gtk.ApplicationWindow):
 
     # -- actions on the selection --------------------------------------------
 
+    def terminal_folder(self):
+        """Where "here" is: the focused column's folder (for an archive, the folder it's in)."""
+        column = self.view.focused_column
+        if column is None:
+            return HOME
+        return os.path.dirname(column.archive) if column.archive is not None else column.path
+
+    def open_terminal_here(self):
+        actions.open_terminal(self, self.terminal_folder())
+
     def open_entries(self, entries):
         actions.open_default(self, entries)
 
@@ -1029,6 +1043,8 @@ class Window(Gtk.ApplicationWindow):
             return False
         if key == Gdk.KEY_F5:
             self.view.reload()
+        elif key == Gdk.KEY_F4 and mods == 0:
+            self.open_terminal_here()
         elif key == Gdk.KEY_Escape and mods == 0:
             if self.get_focus() is not None and self.get_focus().is_ancestor(self.sidebar):
                 return False                     # the sidebar's Esc goes back to the columns
