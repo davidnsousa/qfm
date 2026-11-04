@@ -1,10 +1,11 @@
-"""Preview pane: images, text (GtkSourceView), the first page of PDFs, folder item counts,
-and file info. Files are read in a worker thread; a newer selection discards older results."""
+"""Preview pane: images, text (GtkSourceView), the first page of PDFs and other vector files,
+3D models, folder item counts, and file info. Files are read in a worker thread; a newer selection discards older results."""
 import grp
 import os
 import pwd
 import shutil
 import stat
+import subprocess
 import threading
 import time
 
@@ -15,7 +16,7 @@ gi.require_version("GtkSource", "4")
 gi.require_version("Poppler", "0.18")
 from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk, GtkSource, Pango, Poppler  # noqa: E402
 
-from . import archive, media, trash  # noqa: E402
+from . import archive, media, models, trash  # noqa: E402
 from .columns import describe, human_date, human_size, short_path  # noqa: E402
 
 TEXT_LIMIT = 256 * 1024       # bytes of a text file shown
@@ -30,10 +31,12 @@ TEXT_TYPES = {"application/json", "application/xml", "application/javascript", "
               "application/sql", "application/x-perl", "application/x-ruby", "application/x-php"}
 IMAGE_TYPES = {m for f in GdkPixbuf.Pixbuf.get_formats() for m in f.get_mime_types()}
 ANIMATED_TYPES = {"image/gif", "image/webp"}
+GHOSTSCRIPT = shutil.which("gs")   # renders PostScript and EPS (and PostScript-era Illustrator files)
+VECTOR_DPI = 110                   # PostScript pages are rendered at this resolution
 
 
 def kind_of(entry):
-    """How to preview entry: folder, archive, image, pdf, text, maybe-text or None."""
+    """How to preview entry: folder, archive, image, pdf, vector, model, media, text, maybe-text or None."""
     if entry.is_dir:
         return "folder"
     if entry.archive is None and archive.is_archive(entry.name):
@@ -47,6 +50,10 @@ def kind_of(entry):
         return "media"
     if ct == "application/pdf":
         return "pdf"
+    if ct == "application/illustrator" or (GHOSTSCRIPT and Gio.content_type_is_a(ct, "application/postscript")):
+        return "vector"
+    if entry.archive is None and models.is_model(entry.name) and entry.size <= models.SIZE_LIMIT:
+        return "model"
     if ct in TEXT_TYPES or Gio.content_type_is_a(ct, "text/plain"):
         return "text"
     if Gio.content_type_is_unknown(ct) and entry.size <= UNKNOWN_TEXT_LIMIT:
@@ -95,6 +102,31 @@ def render_pdf(path):
     page.render(context)
     surface.flush()
     return surface, document.get_n_pages()
+
+
+def render_vector(path, content_type):
+    """(the first page as a picture, page count or None): Illustrator files are PDFs inside
+    (since version 9), PostScript and EPS go through Ghostscript."""
+    if content_type == "application/illustrator":
+        try:
+            return render_pdf(path)
+        except GLib.Error:
+            if not GHOSTSCRIPT:
+                raise
+    # -dSAFER: PostScript is a program; this keeps it from touching files
+    command = [GHOSTSCRIPT, "-q", "-dSAFER", "-dBATCH", "-dNOPAUSE", "-sDEVICE=png16m", f"-r{VECTOR_DPI}",
+               "-dTextAlphaBits=4", "-dGraphicsAlphaBits=4", "-dEPSCrop", "-dFirstPage=1", "-dLastPage=1",
+               "-sOutputFile=-", path]
+    try:
+        out = subprocess.run(command, capture_output=True, timeout=20, stdin=subprocess.DEVNULL).stdout
+    except subprocess.TimeoutExpired:
+        raise OSError("Ghostscript took too long") from None
+    if not out.startswith(b"\x89PNG"):
+        raise OSError("Ghostscript couldn't render this file")
+    loader = GdkPixbuf.PixbufLoader.new_with_type("png")
+    loader.write(out[:out.find(b"IEND") + 8])    # the first page (a later one may follow)
+    loader.close()
+    return loader.get_pixbuf(), None
 
 
 def folder_size(paths, deadline):
@@ -376,6 +408,11 @@ class Preview(Gtk.Box):
                 elif kind == "pdf":
                     result, pages = render_pdf(source)
                     extra = [("Pages", str(pages))]
+                elif kind == "vector":
+                    result, pages = render_vector(source, entry.content_type)
+                    extra = [("Pages", str(pages))] if pages and pages > 1 else []
+                elif kind == "model":
+                    result, extra = models.render(source)
                 elif kind in ("text", "maybe-text"):
                     result = read_text(source)
                     if result and result[1]:
@@ -389,7 +426,8 @@ class Preview(Gtk.Box):
                         "standard::content-type", Gio.FileQueryInfoFlags.NONE, None)
                     sniffed = info.get_content_type()
                     rows[0] = ("Kind", describe(sniffed or entry.content_type))
-            except (GLib.Error, OSError, ValueError, cairo.Error, archive.Error) as err:
+            except (GLib.Error, OSError, ValueError, IndexError, StopIteration, KeyError, MemoryError,
+                    cairo.Error, archive.Error) as err:
                 message = (getattr(err, "message", None) or str(err)).split(" (errno=")[0]
                 if kind == "media" and "missing a plug-in" in message:
                     message = "Can't play this format - a GStreamer codec is missing (gst-libav, gst-plugins-bad)"
@@ -438,8 +476,10 @@ class Preview(Gtk.Box):
                 self._start_animation(result)
             else:
                 self._show_picture(result, top=False)
-        elif kind == "pdf":
+        elif kind in ("pdf", "vector"):
             self._show_picture(result, top=True)
+        elif kind == "model":
+            self._show_picture(result, top=False)
         elif kind == "media":
             self._show_media(entry, result)
         elif kind in ("text", "maybe-text"):

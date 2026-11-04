@@ -35,7 +35,7 @@ MENU_ENTRY=yes   # yes: install an app-menu entry, no: command only
 # or leave (a window or terminal app: stopping it could lose unsaved work)
 RUNNING_ON_UPDATE=leave
 # pacman packages the app needs besides Python itself
-SYSTEM_PKGS=(python python-gobject python-cairo gtk3 gtksourceview4 poppler-glib python-libarchive-c
+SYSTEM_PKGS=(python python-gobject python-cairo gtk3 gtksourceview4 poppler-glib python-libarchive-c python-numpy
              gstreamer gst-plugins-base gst-plugins-good gst-libav)
 
 GREEN='\033[0;32m'; RED='\033[0;31m'; YELLOW='\033[1;33m'; NC='\033[0m'
@@ -163,6 +163,7 @@ check_system_deps() {
         sudo pacman -S --needed --noconfirm "${missing[@]}"
     fi
     pacman -Q librsvg >/dev/null 2>&1 || warn "librsvg is not installed - SVG images won't preview (sudo pacman -S librsvg)"
+    pacman -Q ghostscript >/dev/null 2>&1 || warn "ghostscript is not installed - PostScript and EPS files won't preview (sudo pacman -S ghostscript)"
     info "System dependencies OK"
 }
 

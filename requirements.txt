@@ -1,4 +1,4 @@
 # No pip packages: qfm uses GTK 3, GtkSourceView 4, Poppler, pycairo and libarchive-c from
-# pacman (python-gobject python-cairo gtk3 gtksourceview4 poppler-glib python-libarchive-c, and GStreamer:
+# pacman (python-gobject python-cairo gtk3 gtksourceview4 poppler-glib python-libarchive-c python-numpy, and GStreamer:
 # gstreamer gst-plugins-base gst-plugins-good gst-libav), which install.sh
 # installs; the venv is created with --system-site-packages so it sees them.
