@@ -1059,6 +1059,10 @@ class Window(Gtk.ApplicationWindow):
         mods = event.state & Gtk.accelerator_get_default_mod_mask()
         ctrl, shift = Gdk.ModifierType.CONTROL_MASK, Gdk.ModifierType.SHIFT_MASK
         typing = isinstance(self.get_focus(), Gtk.Entry)
+        if (key == Gdk.KEY_Escape and mods == 0 and isinstance(self.get_focus(), Gtk.SpinButton)
+                and self.side.get_visible_child_name() == "options"):
+            self.close_options()          # (a number box in Options is an entry, but Esc still closes)
+            return True
         if key == Gdk.KEY_F1 and mods == 0:
             self.toggle_keys()
             return True
