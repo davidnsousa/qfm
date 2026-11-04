@@ -28,7 +28,8 @@ ARCHIVED_LIMIT = 64 << 20     # files inside archives bigger than this aren't ex
 SIZE_SECONDS = 1.5            # time spent adding up a folder's total size before showing "so far"
 # the Preview tab's one line: these properties, worded so they read without their names
 SUMMARY = (("Size", "{}"), ("Dimensions", "{}"), ("Pages", "{} pages"), ("Duration", "{}"),
-           ("Triangles", "{} triangles"), ("Contains", "{}"), ("Items", "{} items"))
+           ("Triangles", "{} triangles"), ("Contains", "{}"), ("Items", "{} items"), ("Total size", "{}"),
+           ("Files", "{} files"), ("Folders", "{} folders"))
 PERMISSION_BITS = (("Owner", (stat.S_IRUSR, stat.S_IWUSR, stat.S_IXUSR)),
                    ("Group", (stat.S_IRGRP, stat.S_IWGRP, stat.S_IXGRP)),
                    ("Others", (stat.S_IROTH, stat.S_IWOTH, stat.S_IXOTH)))
@@ -241,21 +242,21 @@ class Preview(Gtk.Box):
         for heading in (self.preview_heading, self.props_heading):
             heading.get_style_context().add_class("qfm-section")
         # tabs (Options: Preview layout): Preview | Properties, or both in one panel
-        self.tabs = Gtk.Box(halign=Gtk.Align.START)
-        self.tabs.get_style_context().add_class("linked")
+        self.tabs = Gtk.Box(homogeneous=True, margin_bottom=2)     # each tab half the width
+        self.tabs.get_style_context().add_class("qfm-tabs")
         self.tab_buttons, group = {}, None
         for name, label in (("preview", "Preview"), ("properties", "Properties")):
             button = Gtk.RadioButton(label=label, group=group, draw_indicator=False, can_focus=False,
-                                     tooltip_text="Switch tabs (Ctrl+I)")
+                                     relief=Gtk.ReliefStyle.NONE, tooltip_text="Switch tabs (Ctrl+I)")
             group = group or button
             button.connect("toggled", lambda b, n=name: b.get_active() and self.set_tab(n))
-            self.tabs.pack_start(button, False, False, 0)
+            self.tabs.pack_start(button, True, True, 0)
             self.tab_buttons[name] = button
-        self.summary = Gtk.Label(xalign=0, ellipsize=Pango.EllipsizeMode.END)
+        self.summary = Gtk.Label(xalign=0.5, wrap=True, justify=Gtk.Justification.CENTER)
         self.summary.get_style_context().add_class("qfm-preview-key")
         self.perms = self._permissions_grid()
-        self.pack_start(self.title, False, False, 0)
         self.pack_start(self.tabs, False, False, 0)
+        self.pack_start(self.title, False, False, 0)
         self.pack_start(self.preview_heading, False, False, 0)
         self.pack_start(self.stack, False, True, 0)
         self.pack_start(self.summary, False, False, 0)
@@ -388,17 +389,17 @@ class Preview(Gtk.Box):
         self.set_tab("properties" if self.window.store.options["preview_tab"] == "preview" else "preview")
 
     def layout_tabs(self):
-        """Which parts show. Tabs: the picture/text/video (with a summary line) or the properties;
-        with nothing to preview, the properties (and the icon) whatever the tab. One panel: all."""
+        """Which parts show. Tabs: the picture/text/video, or for folders and the like the big
+        icon, with a summary line - or the properties. One panel: everything."""
         has = self.stack.get_visible_child_name() != "icon"
         tabbed, tab = self.tabbed, self.window.store.options["preview_tab"]
-        show_preview = not tabbed or not has or tab == "preview"
-        show_props = not tabbed or not has or tab == "properties"
-        self.tabs.set_visible(tabbed and has)
+        show_preview = not tabbed or tab == "preview"
+        show_props = not tabbed or tab == "properties"
+        self.tabs.set_visible(tabbed)
         self.preview_heading.set_visible(not tabbed)
         self.props_heading.set_visible(not tabbed)
         self.stack.set_visible(show_preview)
-        self.summary.set_visible(tabbed and has and tab == "preview" and bool(self.summary.get_text()))
+        self.summary.set_visible(tabbed and tab == "preview" and bool(self.summary.get_text()))
         self.info.set_visible(show_props)
         self.perms.set_visible(show_props and self._perm_path is not None)
         big = has and show_preview
@@ -596,8 +597,7 @@ class Preview(Gtk.Box):
     def _set_info(self, rows):
         found = dict(rows)
         self.summary.set_text("  ·  ".join(form.format(found[k].split(" (")[0]) for k, form in SUMMARY if found.get(k)))
-        self.summary.set_visible(self.tabbed and self.stack.get_visible()
-                                 and self.stack.get_visible_child_name() != "icon" and bool(self.summary.get_text()))
+        self.summary.set_visible(self.tabbed and self.stack.get_visible() and bool(self.summary.get_text()))
         for child in self.info.get_children():
             child.destroy()
         for i, (key, value) in enumerate(rows):
@@ -612,28 +612,35 @@ class Preview(Gtk.Box):
     # -- permissions: who can read, write, run (open, for folders) -------------------
 
     def _permissions_grid(self):
-        grid = Gtk.Grid(column_spacing=10, row_spacing=2, margin_top=8)
+        """PERMISSIONS: a small table, rows Owner / Group / Others, columns Read / Write / Run."""
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, margin_top=14)
+        heading = Gtk.Label(label="PERMISSIONS", xalign=0)
+        heading.get_style_context().add_class("qfm-section")
+        grid = Gtk.Grid(column_spacing=4, row_spacing=4, halign=Gtk.Align.CENTER, column_homogeneous=True)
+        grid.get_style_context().add_class("qfm-perms")
         self._perm_path, self._perm_quiet = None, False
         self.perm_checks = {}
         self.perm_headers = []
         for col, text in enumerate(("Read", "Write", "Run")):
-            label = Gtk.Label(label=text)
+            label = Gtk.Label(label=text, halign=Gtk.Align.CENTER)
             label.get_style_context().add_class("qfm-preview-key")
             grid.attach(label, col + 1, 0, 1, 1)
             self.perm_headers.append(label)
         for row, (who, bits) in enumerate(PERMISSION_BITS):
-            label = Gtk.Label(label=who, xalign=1)
+            label = Gtk.Label(label=who, xalign=1, margin_end=8)
             label.get_style_context().add_class("qfm-preview-key")
             grid.attach(label, 0, row + 1, 1, 1)
             for col, bit in enumerate(bits):
-                check = Gtk.CheckButton(halign=Gtk.Align.CENTER)
+                check = Gtk.CheckButton(halign=Gtk.Align.CENTER, valign=Gtk.Align.CENTER, can_focus=True)
                 check.connect("toggled", self._on_permission, bit)
                 grid.attach(check, col + 1, row + 1, 1, 1)
                 self.perm_checks[bit] = check
-        self.perm_note = Gtk.Label(xalign=0, wrap=True, max_width_chars=30)
+        self.perm_note = Gtk.Label(xalign=0.5, wrap=True, max_width_chars=30)
         self.perm_note.get_style_context().add_class("qfm-preview-key")
-        grid.attach(self.perm_note, 0, len(PERMISSION_BITS) + 1, 4, 1)
-        return grid
+        box.pack_start(heading, False, False, 0)
+        box.pack_start(grid, False, False, 0)
+        box.pack_start(self.perm_note, False, False, 0)
+        return box
 
     def _set_permissions(self, entry):
         """The checkboxes for entry (a real file or folder, not a link); editable if it's yours."""

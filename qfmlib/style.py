@@ -37,6 +37,13 @@ CSS = b"""
                background-color: mix(@theme_base_color, @theme_selected_bg_color, 0.28); }
 .qfm-prompt-label { font-weight: bold; }
 .qfm-key { font-family: "JetBrainsMonoNL Nerd Font", monospace; font-size: 9pt; font-weight: bold; }
+/* the preview's tabs: flat labels, the current one underlined (no button frames) */
+.qfm-tabs button { border: none; border-radius: 0; background: none; box-shadow: none; min-height: 0;
+                   padding: 3px 0 5px 0; border-bottom: 2px solid alpha(@theme_fg_color, 0.08);
+                   color: alpha(@theme_fg_color, 0.5); font-size: 9pt; }
+.qfm-tabs button:hover { color: alpha(@theme_fg_color, 0.8); }
+.qfm-tabs button:checked { border-bottom-color: @theme_selected_bg_color; color: @theme_fg_color; }
+.qfm-perms { padding: 6px 12px; border-radius: 6px; background-color: alpha(@theme_fg_color, 0.04); }
 .qfm-section { font-size: 8pt; font-weight: bold; color: alpha(@theme_fg_color, 0.45); margin-top: 6px; }
 .mono { font-family: "JetBrainsMonoNL Nerd Font", monospace; font-size: 9pt; }
 """
