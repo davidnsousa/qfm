@@ -29,6 +29,7 @@ CSS = b"""
 .qfm-pane-heading { font-weight: bold; }
 .qfm-app-number { font-size: 7pt; font-weight: bold; padding: 0 3px; border-radius: 4px;
                   background-color: alpha(@theme_bg_color, 0.85); color: @theme_fg_color; }
+.qfm-statusbar .qfm-app { padding: 0 2px; min-height: 0; min-width: 0; }
 .qfm-default-app { border: 1px solid @theme_selected_bg_color; border-radius: 6px; }
 .qfm-prompt { padding: 6px 8px; border-top: 1px solid @borders;
                background-color: mix(@theme_base_color, @theme_selected_bg_color, 0.28); }

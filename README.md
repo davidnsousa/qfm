@@ -13,8 +13,8 @@ A keyboard-driven file manager for Linux (GTK3) with Miller columns.
   the bottom of the window, not in dialog windows.
 - The preview panel shows images, text with syntax highlighting and the first page of PDFs,
   and plays video and audio. The file's properties are shown below the preview.
-- The preview lists the applications that can open the selected file. Alt+1 to Alt+9 open
-  the file with one of them.
+- The status bar shows the applications that can open the selection; click one, or press
+  Alt+1 to Alt+9, to open it with that app.
 - Archives (zip, tar, 7z, rar, iso) can be browsed like folders, and files can be copied out
   of them. The menu has Compress, Extract Here and Extract To.
 - Ctrl+Z undoes rename, move, copy, move to trash, restore, new folder, compress and extract.

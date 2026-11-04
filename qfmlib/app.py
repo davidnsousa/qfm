@@ -163,6 +163,8 @@ class Window(Gtk.ApplicationWindow):
         status.get_style_context().add_class("qfm-statusbar")
         self.status_left = Gtk.Label(xalign=0, ellipsize=Pango.EllipsizeMode.MIDDLE)
         self.status_right = Gtk.Label(xalign=1, ellipsize=Pango.EllipsizeMode.START)
+        self.apps = actions.AppRow(self)   # the apps that open the selection
+        status.pack_start(self.apps, False, False, 0)
         status.pack_start(self.status_left, True, True, 0)
         status.pack_start(self.status_right, False, False, 0)
 
@@ -286,6 +288,7 @@ class Window(Gtk.ApplicationWindow):
 
     def _load_preview(self):
         self._preview_timer = 0
+        self.apps.show_for(self.many or ([self.current] if self.current is not None else []))
         self.refresh_preview()
         return False
 
@@ -341,7 +344,7 @@ class Window(Gtk.ApplicationWindow):
         return self.get_window().get_device_position(pointer)[3]
 
     def open_with_number(self, n):
-        """Alt+n: open the selection with the nth app of the preview's Open with row (Alt+0: choose)."""
+        """Alt+n: open the selection with the nth app of the status bar's row (Alt+0: choose)."""
         entries = self.chosen()
         if not entries:
             return

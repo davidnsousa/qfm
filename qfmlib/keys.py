@@ -19,7 +19,7 @@ SHORTCUTS = [
     ]),
     ("Open", [
         ("Enter / double-click on a file", "open it with its default app"),
-        ("Alt+1 … Alt+9", "open with app 1…9 of the preview's Open with row"),
+        ("Alt+1 … Alt+9", "open with app 1…9 in the status bar"),
         ("Alt+0", "open with any other app"),
         ("Ctrl+O / Menu / Copilot key / Shift+F10", "the actions menu (also right-click)"),
         ("Ctrl+E", "show in the system file manager"),

@@ -300,3 +300,71 @@ def build_menu(win, entry, entries):
               surface=win.icons.surface(win.icons.get("inode/directory", 16)))
     menu.show_all()
     return menu
+
+
+# -- the apps that open the selection (the status bar) --------------------------
+
+class AppRow(Gtk.Box):
+    """One button per app that opens the selection (the default first, ringed), then
+    "other app". Alt+number opens with the numbered one (see Window.open_with_number)."""
+    SIZE = 20
+
+    def __init__(self, win):
+        super().__init__(spacing=2)
+        self.win = win
+        self.token = 0
+
+    def show_for(self, entries):
+        """Name-based types now; for one file, its sniffed type once read (if it differs)."""
+        self.token += 1
+        self._build(entries, types_of(entries) if len(entries) > 1 else [e.content_type for e in entries[:1]])
+        if len(entries) == 1 and not entries[0].is_dir and entries[0].archive is None:
+            token, entry = self.token, entries[0]
+
+            def sniffed(gfile, result):
+                try:
+                    ct = gfile.query_info_finish(result).get_content_type()
+                except GLib.Error:
+                    return
+                if token == self.token and ct and ct != entry.content_type:
+                    self._build([entry], [ct])
+
+            Gio.File.new_for_path(entry.path).query_info_async(
+                "standard::content-type", Gio.FileQueryInfoFlags.NONE, GLib.PRIORITY_DEFAULT, None, sniffed)
+
+    def _build(self, entries, types):
+        for child in self.get_children():
+            child.destroy()
+        if not entries:
+            return
+        default, apps = apps_for(types)
+        win, label = self.win, what(entries)
+        for i, app in enumerate(apps + [None]):
+            button = Gtk.Button(relief=Gtk.ReliefStyle.NONE, can_focus=False)
+            number = 0 if app is None else i + 1     # Alt+number opens with it
+            if app is None:
+                image = Gtk.Image.new_from_icon_name("view-app-grid-symbolic", Gtk.IconSize.BUTTON)
+                button.set_tooltip_text(f"Open {label} with another app… (Alt+0)")
+                button.connect("clicked", lambda *_: choose_app(win, entries))
+            else:
+                icon = app.get_icon()
+                image = (Gtk.Image.new_from_gicon(icon, Gtk.IconSize.BUTTON) if icon
+                         else Gtk.Image.new_from_icon_name("application-x-executable", Gtk.IconSize.BUTTON))
+                is_default = default is not None and app.get_id() == default.get_id()
+                button.set_tooltip_text(f"Open {label} with {app.get_display_name()}"
+                                        + (" (default)" if is_default else "")
+                                        + (f" (Alt+{number})" if number <= 9 else ""))
+                if is_default:
+                    button.get_style_context().add_class("qfm-default-app")
+                button.connect("clicked", lambda _, a=app: launch(win, a, entries))
+            image.set_pixel_size(self.SIZE)
+            overlay = Gtk.Overlay()
+            overlay.add(image)
+            if number <= 9:
+                badge = Gtk.Label(label=str(number), halign=Gtk.Align.END, valign=Gtk.Align.END)
+                badge.get_style_context().add_class("qfm-app-number")
+                overlay.add_overlay(badge)
+            button.add(overlay)
+            button.get_style_context().add_class("qfm-app")
+            self.pack_start(button, False, False, 0)
+        self.show_all()

@@ -15,7 +15,7 @@ gi.require_version("GtkSource", "4")
 gi.require_version("Poppler", "0.18")
 from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk, GtkSource, Pango, Poppler  # noqa: E402
 
-from . import actions, archive, media, trash  # noqa: E402
+from . import archive, media, trash  # noqa: E402
 from .columns import describe, human_date, human_size, short_path  # noqa: E402
 
 TEXT_LIMIT = 256 * 1024       # bytes of a text file shown
@@ -205,17 +205,8 @@ class Preview(Gtk.Box):
         self.pack_start(self.title, False, False, 0)
         self.pack_start(self.preview_heading, False, False, 0)
         self.pack_start(self.stack, False, True, 0)
-        # the apps that open the selection: click one to open it with that app
-        self.apps_heading = Gtk.Label(label="Open with", xalign=0, margin_top=8)
-        self.apps_heading.get_style_context().add_class("qfm-preview-key")
-        self.apps = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, max_children_per_line=12,
-                                column_spacing=2, row_spacing=2, homogeneous=True, valign=Gtk.Align.START)
-        for widget in (self.apps_heading, self.apps):
-            widget.set_no_show_all(True)
         self.pack_start(self.props_heading, False, False, 0)
         self.pack_start(self.info, False, False, 0)
-        self.pack_start(self.apps_heading, False, False, 0)
-        self.pack_start(self.apps, False, False, 0)
         self.pack_start(self.filler, True, True, 0)
         self.stack.connect("notify::visible-child-name", self._on_mode)
         self.connect("style-updated", lambda *_: self._pick_scheme())
@@ -353,13 +344,11 @@ class Preview(Gtk.Box):
             self.title.set_text("")
             self._set_info([])
             self._show_icon(None)
-            self._set_apps([], [])
             return
         self.title.set_text(entry.display)
         rows, rest = self._basic_rows(entry), self._rest_rows(entry)
         self._set_info(rows + rest)
         self._show_icon(entry)
-        self._set_apps([entry], [entry.content_type])   # name-based now, sniffed type in _done
         kind = kind_of(entry)
         show_hidden = self.window.store.options["show_hidden"]
 
@@ -409,7 +398,7 @@ class Preview(Gtk.Box):
             finally:
                 if extracted:      # everything previewed is in memory by now
                     shutil.rmtree(os.path.dirname(extracted), ignore_errors=True)
-            GLib.idle_add(self._done, token, entry, kind, result, rows + extra + rest, sniffed)
+            GLib.idle_add(self._done, token, entry, kind, result, rows + extra + rest)
 
         threading.Thread(target=work, daemon=True).start()
 
@@ -437,56 +426,11 @@ class Preview(Gtk.Box):
         self.icon.set_from_icon_name("emblem-documents-symbolic", Gtk.IconSize.DIALOG)
         self.icon.set_pixel_size(96)
         self.stack.set_visible_child_name("icon")
-        self._set_apps(entries, actions.types_of(entries))
 
-    def _set_apps(self, entries, types):
-        """One button per app that opens entries (the default first, ringed), then "other app"."""
-        for child in self.apps.get_children():
-            child.destroy()
-        shown = bool(entries)
-        self.apps_heading.set_visible(shown)
-        self.apps.set_visible(shown)
-        if not shown:
-            return
-        default, apps = actions.apps_for(types)
-        what = actions.what(entries)
-        for i, app in enumerate(apps + [None]):
-            button = Gtk.Button(relief=Gtk.ReliefStyle.NONE, can_focus=False)
-            number = 0 if app is None else i + 1     # Alt+number opens with it
-            if app is None:
-                image = Gtk.Image.new_from_icon_name("view-app-grid-symbolic", Gtk.IconSize.DND)
-                button.set_tooltip_text(f"Open {what} with another app… (Alt+0)")
-                button.connect("clicked", lambda *_: actions.choose_app(self.window, entries))
-            else:
-                icon = app.get_icon()
-                image = (Gtk.Image.new_from_gicon(icon, Gtk.IconSize.DND) if icon
-                         else Gtk.Image.new_from_icon_name("application-x-executable", Gtk.IconSize.DND))
-                is_default = default is not None and app.get_id() == default.get_id()
-                button.set_tooltip_text(f"Open {what} with {app.get_display_name()}"
-                                        + (" (default)" if is_default else "")
-                                        + (f" (Alt+{number})" if number <= 9 else ""))
-                if is_default:
-                    button.get_style_context().add_class("qfm-default-app")
-                button.connect("clicked", lambda _, a=app: actions.launch(self.window, a, entries))
-            image.set_pixel_size(32)
-            overlay = Gtk.Overlay()
-            overlay.add(image)
-            if number <= 9:
-                badge = Gtk.Label(label=str(number), halign=Gtk.Align.END, valign=Gtk.Align.END)
-                badge.get_style_context().add_class("qfm-app-number")
-                overlay.add_overlay(badge)
-            button.add(overlay)
-            self.apps.add(button)
-        for child in self.apps.get_children():
-            child.set_can_focus(False)
-            child.show_all()   # (show_all on the box itself stops at its no_show_all)
-
-    def _done(self, token, entry, kind, result, rows, sniffed=None):
+    def _done(self, token, entry, kind, result, rows):
         if token != self.token:
             return False
         self._set_info(rows)
-        if sniffed and sniffed != entry.content_type:
-            self._set_apps([entry], [sniffed])
         if result is None:
             return False
         if kind == "image":
