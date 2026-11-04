@@ -57,6 +57,7 @@ SHORTCUTS = [
         ("Space", "show / hide the preview"),
         ("Ctrl+H", "show / hide hidden files"),
         ("Ctrl+R / F5", "reload"),
+        ("Ctrl+I", "preview: switch between the Preview and Properties tabs"),
         ("Ctrl+,", "options: sorting, columns, panels, window…"),
         ("F1", "this list"),
     ]),

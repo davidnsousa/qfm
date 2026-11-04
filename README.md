@@ -13,7 +13,8 @@ A keyboard-driven file manager for Linux (GTK3) with Miller columns.
   the bottom of the window, not in dialog windows.
 - The preview panel shows images (SVG included), text with syntax highlighting, the first
   page of PDFs, Illustrator, PostScript and EPS files, and 3D models (STL, OBJ, PLY), and
-  plays video and audio. The file's properties are shown below the preview.
+  plays video and audio. It has two tabs, Preview and Properties (Ctrl+I), or one panel
+  (Options). Permissions can be changed there with checkboxes. The file's properties are shown below the preview.
 - The status bar shows the applications that can open the selection; click one, or press
   Alt+1 to Alt+9, to open it with that app.
 - Archives (zip, tar, 7z, rar, iso) can be browsed like folders, and files can be copied out

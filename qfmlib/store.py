@@ -23,6 +23,8 @@ DEFAULT_OPTIONS = {
     "fit_columns": True,     # the shown columns split the width (at most max_columns); False: they scroll
     "max_columns": 3,
     "preview": True,
+    "preview_layout": "tabs",  # tabs: Preview | Properties; single: properties below the preview
+    "preview_tab": "preview",  # the tab last chosen
     "sidebar": True,
     "window_width": 1280,
     "window_height": 520,

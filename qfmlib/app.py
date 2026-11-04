@@ -863,6 +863,15 @@ class Window(Gtk.ApplicationWindow):
         self.hidden_check = Gtk.CheckButton(label="Hidden files (Ctrl+H)", active=self.options["show_hidden"])
         self.hidden_check.connect("toggled", lambda b: self._set_option("show_hidden", b.get_active()))
         box.pack_start(self.hidden_check, False, False, 0)
+        heading("Preview")
+        tabs = Gtk.RadioButton(label="Tabs: Preview and Properties", active=self.options["preview_layout"] == "tabs")
+        single = Gtk.RadioButton(label="One panel, properties below", group=tabs,
+                                 active=self.options["preview_layout"] == "single")
+        tabs.connect("toggled", lambda b: b.get_active() and self._set_preview_layout("tabs"))
+        single.connect("toggled", lambda b: b.get_active() and self._set_preview_layout("single"))
+        box.pack_start(tabs, False, False, 0)
+        note("Ctrl+I switches tabs. With nothing to preview, the properties show.")
+        box.pack_start(single, False, False, 0)
         heading("Window")
         dialog = Gtk.RadioButton(label="Quick dialog", active=self.options["window_mode"] == "dialog")
         normal = Gtk.RadioButton(label="Normal window", group=dialog, active=self.options["window_mode"] == "normal")
@@ -948,6 +957,11 @@ class Window(Gtk.ApplicationWindow):
                 service.stop()
             self.flash("Folders go back to the previous app")
 
+    def _set_preview_layout(self, layout):
+        self.options["preview_layout"] = layout
+        self.store.save_options()
+        self.preview.layout_tabs()
+
     def _toggle_detail(self, key, shown):
         details = [k for k, _ in DETAIL_NAMES if (k == key and shown) or (k != key and k in self.options["details"])]
         self._set_option("details", details)
@@ -989,6 +1003,11 @@ class Window(Gtk.ApplicationWindow):
                 self.toggle_bookmark()
             elif lower == Gdk.KEY_h:
                 self.hidden_check.set_active(not self.hidden_check.get_active())
+            elif lower == Gdk.KEY_i:
+                if self.preview.tabbed:
+                    self.preview.toggle_tab()
+                else:
+                    self.flash("The preview shows everything in one panel (Options: Preview)")
             elif lower == Gdk.KEY_o:
                 self.show_menu()
             elif lower == Gdk.KEY_e:

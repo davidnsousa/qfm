@@ -26,6 +26,12 @@ PDF_WIDTH = 1000              # PDF pages are rendered this wide
 COUNT_LIMIT = 100000          # folder items counted
 ARCHIVED_LIMIT = 64 << 20     # files inside archives bigger than this aren't extracted to preview
 SIZE_SECONDS = 1.5            # time spent adding up a folder's total size before showing "so far"
+# the Preview tab's one line: these properties, worded so they read without their names
+SUMMARY = (("Size", "{}"), ("Dimensions", "{}"), ("Pages", "{} pages"), ("Duration", "{}"),
+           ("Triangles", "{} triangles"), ("Contains", "{}"), ("Items", "{} items"))
+PERMISSION_BITS = (("Owner", (stat.S_IRUSR, stat.S_IWUSR, stat.S_IXUSR)),
+                   ("Group", (stat.S_IRGRP, stat.S_IWGRP, stat.S_IXGRP)),
+                   ("Others", (stat.S_IROTH, stat.S_IWOTH, stat.S_IXOTH)))
 TEXT_TYPES = {"application/json", "application/xml", "application/javascript", "application/x-shellscript",
               "application/toml", "application/x-yaml", "application/yaml", "application/x-desktop",
               "application/sql", "application/x-perl", "application/x-ruby", "application/x-php"}
@@ -234,13 +240,36 @@ class Preview(Gtk.Box):
         self.props_heading = Gtk.Label(label="PROPERTIES", xalign=0)
         for heading in (self.preview_heading, self.props_heading):
             heading.get_style_context().add_class("qfm-section")
+        # tabs (Options: Preview layout): Preview | Properties, or both in one panel
+        self.tabs = Gtk.Box(halign=Gtk.Align.START)
+        self.tabs.get_style_context().add_class("linked")
+        self.tab_buttons, group = {}, None
+        for name, label in (("preview", "Preview"), ("properties", "Properties")):
+            button = Gtk.RadioButton(label=label, group=group, draw_indicator=False, can_focus=False,
+                                     tooltip_text="Switch tabs (Ctrl+I)")
+            group = group or button
+            button.connect("toggled", lambda b, n=name: b.get_active() and self.set_tab(n))
+            self.tabs.pack_start(button, False, False, 0)
+            self.tab_buttons[name] = button
+        self.summary = Gtk.Label(xalign=0, ellipsize=Pango.EllipsizeMode.END)
+        self.summary.get_style_context().add_class("qfm-preview-key")
+        self.perms = self._permissions_grid()
         self.pack_start(self.title, False, False, 0)
+        self.pack_start(self.tabs, False, False, 0)
         self.pack_start(self.preview_heading, False, False, 0)
         self.pack_start(self.stack, False, True, 0)
+        self.pack_start(self.summary, False, False, 0)
         self.pack_start(self.props_heading, False, False, 0)
         self.pack_start(self.info, False, False, 0)
+        self.pack_start(self.perms, False, False, 0)
         self.pack_start(self.filler, True, True, 0)
+        for widget in (self.tabs, self.preview_heading, self.stack, self.summary, self.props_heading,
+                       self.info, self.perms):
+            widget.show_all()                # (show_all skips what's marked no-show-all: first)
+            widget.set_no_show_all(True)     # layout_tabs() decides
+        self.tab_buttons[window.store.options["preview_tab"]].set_active(True)
         self.stack.connect("notify::visible-child-name", self._on_mode)
+        self.layout_tabs()
         self.connect("style-updated", lambda *_: self._pick_scheme())
 
     # -- video and audio -------------------------------------------------------
@@ -337,8 +366,43 @@ class Preview(Gtk.Box):
         self._media_changed()
 
     def _on_mode(self, stack, _):
-        big = stack.get_visible_child_name() != "icon"
-        self.child_set_property(stack, "expand", big)
+        self.layout_tabs()
+
+    # -- tabs: Preview | Properties ------------------------------------------------
+
+    @property
+    def tabbed(self):
+        return self.window.store.options["preview_layout"] == "tabs"
+
+    def set_tab(self, name):
+        options = self.window.store.options
+        if options["preview_tab"] != name:
+            options["preview_tab"] = name
+            self.window.store.save_options()
+        if not self.tab_buttons[name].get_active():
+            self.tab_buttons[name].set_active(True)
+        self.layout_tabs()
+
+    def toggle_tab(self):
+        """Ctrl+I: the other tab."""
+        self.set_tab("properties" if self.window.store.options["preview_tab"] == "preview" else "preview")
+
+    def layout_tabs(self):
+        """Which parts show. Tabs: the picture/text/video (with a summary line) or the properties;
+        with nothing to preview, the properties (and the icon) whatever the tab. One panel: all."""
+        has = self.stack.get_visible_child_name() != "icon"
+        tabbed, tab = self.tabbed, self.window.store.options["preview_tab"]
+        show_preview = not tabbed or not has or tab == "preview"
+        show_props = not tabbed or not has or tab == "properties"
+        self.tabs.set_visible(tabbed and has)
+        self.preview_heading.set_visible(not tabbed)
+        self.props_heading.set_visible(not tabbed)
+        self.stack.set_visible(show_preview)
+        self.summary.set_visible(tabbed and has and tab == "preview" and bool(self.summary.get_text()))
+        self.info.set_visible(show_props)
+        self.perms.set_visible(show_props and self._perm_path is not None)
+        big = has and show_preview
+        self.child_set_property(self.stack, "expand", big)
         self.filler.set_visible(not big)
         self._size_view()
 
@@ -352,7 +416,10 @@ class Preview(Gtk.Box):
     def _size_view(self):
         height = getattr(self, "_pane_height", 0)
         big = self.stack.get_visible_child_name() != "icon"
-        wanted = max(150, int(height * 0.5)) if big and height else -1
+        if big and height and self.tabbed:
+            wanted = max(150, height - 150)     # the tab is all preview (title, tabs, summary aside)
+        else:
+            wanted = max(150, int(height * 0.5)) if big and height else -1
         if self.stack.get_size_request()[1] != wanted:
             self.stack.set_size_request(-1, wanted)
 
@@ -375,11 +442,13 @@ class Preview(Gtk.Box):
         if entry is None:
             self.title.set_text("")
             self._set_info([])
+            self._set_permissions(None)
             self._show_icon(None)
             return
         self.title.set_text(entry.display)
         rows, rest = self._basic_rows(entry), self._rest_rows(entry)
         self._set_info(rows + rest)
+        self._set_permissions(entry)
         self._show_icon(entry)
         kind = kind_of(entry)
         show_hidden = self.window.store.options["show_hidden"]
@@ -455,6 +524,7 @@ class Preview(Gtk.Box):
             rows.append(("Size", human_size(sum(e.size for e in files)) + (" (files only)" if folders else "")))
         where = [("Location", short_path(os.path.dirname(entries[0].path) or "/"))]
         self._set_info(rows + where)
+        self._set_permissions(None)
         token = self.token
         if folders and entries[0].archive is None:
             def work():
@@ -524,6 +594,10 @@ class Preview(Gtk.Box):
         return rows + stat_rows(entry.path)
 
     def _set_info(self, rows):
+        found = dict(rows)
+        self.summary.set_text("  ·  ".join(form.format(found[k].split(" (")[0]) for k, form in SUMMARY if found.get(k)))
+        self.summary.set_visible(self.tabbed and self.stack.get_visible()
+                                 and self.stack.get_visible_child_name() != "icon" and bool(self.summary.get_text()))
         for child in self.info.get_children():
             child.destroy()
         for i, (key, value) in enumerate(rows):
@@ -533,7 +607,69 @@ class Preview(Gtk.Box):
                           wrap_mode=Pango.WrapMode.CHAR, hexpand=True)
             self.info.attach(k, 0, i, 1, 1)
             self.info.attach(v, 1, i, 1, 1)
-        self.info.show_all()
+        self.info.foreach(lambda child: child.show())   # (the grid itself: layout_tabs)
+
+    # -- permissions: who can read, write, run (open, for folders) -------------------
+
+    def _permissions_grid(self):
+        grid = Gtk.Grid(column_spacing=10, row_spacing=2, margin_top=8)
+        self._perm_path, self._perm_quiet = None, False
+        self.perm_checks = {}
+        self.perm_headers = []
+        for col, text in enumerate(("Read", "Write", "Run")):
+            label = Gtk.Label(label=text)
+            label.get_style_context().add_class("qfm-preview-key")
+            grid.attach(label, col + 1, 0, 1, 1)
+            self.perm_headers.append(label)
+        for row, (who, bits) in enumerate(PERMISSION_BITS):
+            label = Gtk.Label(label=who, xalign=1)
+            label.get_style_context().add_class("qfm-preview-key")
+            grid.attach(label, 0, row + 1, 1, 1)
+            for col, bit in enumerate(bits):
+                check = Gtk.CheckButton(halign=Gtk.Align.CENTER)
+                check.connect("toggled", self._on_permission, bit)
+                grid.attach(check, col + 1, row + 1, 1, 1)
+                self.perm_checks[bit] = check
+        self.perm_note = Gtk.Label(xalign=0, wrap=True, max_width_chars=30)
+        self.perm_note.get_style_context().add_class("qfm-preview-key")
+        grid.attach(self.perm_note, 0, len(PERMISSION_BITS) + 1, 4, 1)
+        return grid
+
+    def _set_permissions(self, entry):
+        """The checkboxes for entry (a real file or folder, not a link); editable if it's yours."""
+        self._perm_path = None
+        if entry is None or entry.archive is not None or entry.symlink or trash.in_trash(entry.path):
+            return self.perms.set_visible(False)
+        try:
+            st = os.stat(entry.path)
+        except OSError:
+            return self.perms.set_visible(False)
+        self._perm_path = entry.path
+        mine = os.getuid() in (0, st.st_uid)
+        self._perm_quiet = True
+        for bit, check in self.perm_checks.items():
+            check.set_active(bool(st.st_mode & bit))
+            check.set_sensitive(mine)
+        self._perm_quiet = False
+        self.perm_headers[2].set_text("Open" if entry.is_dir else "Run")
+        self.perm_note.set_text("" if mine else "Only its owner can change these")
+        self.perm_note.set_visible(not mine)
+        self.layout_tabs()
+
+    def _on_permission(self, check, bit):
+        if self._perm_quiet or self._perm_path is None:
+            return
+        path = self._perm_path
+        try:
+            mode = os.stat(path).st_mode
+            os.chmod(path, (mode | bit) if check.get_active() else (mode & ~bit))
+        except OSError as err:
+            self._perm_quiet = True
+            check.set_active(not check.get_active())
+            self._perm_quiet = False
+            return self.window.flash(f"Could not change permissions: {err.strerror}", error=True)
+        self.window.flash(f"{os.path.basename(path)}: {stat.filemode(os.stat(path).st_mode)}")
+        self.window.refresh_preview()
 
     def _show_icon(self, entry):
         if entry is None:
