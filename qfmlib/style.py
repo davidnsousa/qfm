@@ -9,6 +9,8 @@ CSS = b"""
 .qfm-toolbar { padding: 4px 6px; border-bottom: 1px solid @borders;
                background-color: mix(@theme_bg_color, @theme_fg_color, 0.10); }
 .qfm-column treeview.view:not(:selected) { background-color: @theme_base_color; }
+/* inside an archive: the column's background warmed toward orange, so it's clear you're not in a folder */
+.qfm-column.in-archive treeview.view:not(:selected) { background-color: mix(@theme_base_color, #fab387, 0.10); }
 .qfm-sidebar-pane, .qfm-sidebar, .qfm-sidebar row:not(:selected) {
                background-color: mix(@theme_base_color, @theme_fg_color, 0.045); }
 .qfm-side { background-color: mix(@theme_base_color, @theme_fg_color, 0.075); }

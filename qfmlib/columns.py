@@ -251,6 +251,8 @@ class Column(Gtk.Overlay):
         self.add_overlay(self.message)
         self.set_overlay_pass_through(self.message, True)
         self.get_style_context().add_class("qfm-column")
+        if self.archive is not None:
+            self.get_style_context().add_class("in-archive")     # its own background (see style.py)
         self.apply_details()
         self._watch()
         self.load()
