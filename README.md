@@ -27,6 +27,9 @@ A keyboard-driven file manager for Linux (GTK3) with Miller columns.
   and Word documents - or your own, once Customize Templates puts them in `~/Templates`), duplicate (Ctrl+Shift+D), symbolic links (Make
   Link, Ctrl+Shift+V pastes as links), and renaming several items at once (F2: find and
   replace, or a new name with numbers).
+- Your own commands (menu or Actions: Run Command): a name, a shell command with `%f` / `%F`
+  (paths), `%n` / `%N` (names), `%d` (folder), which items it's for (`*.png`…), and whether it
+  runs in a terminal. Kept in `~/.config/qfm/commands.json`.
 - Alt+← and Alt+→ (or the mouse's back and forward buttons) go back and forward through the
   places you jumped to.
 - The Size column (Options) shows folder sizes too, added up in the background.

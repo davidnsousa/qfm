@@ -26,6 +26,7 @@ SHORTCUTS = [
         ("Alt+0", "open with any other app"),
         ("Ctrl+K / ☰ button", "the Actions panel: the menu's actions as a list that follows the selection"),
         ("Ctrl+O / Menu / Copilot key / Shift+F10", "the actions menu (also right-click)"),
+        ("menu: Run Command", "your own commands on the selection (Add or Edit Commands… sets them up)"),
         ("F4 / terminal button (status bar)", "open a terminal in this folder"),
         ("Ctrl+E", "show in the system file manager"),
     ]),

@@ -9,7 +9,7 @@ gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")  # else gi picks Gdk 4.0, which clashes with Gtk 3
 from gi.repository import Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
 
-from . import actions, archive, fm1, media, style, trash  # noqa: E402
+from . import actions, archive, commands, fm1, media, style, trash  # noqa: E402
 from .fileops import FileOps  # noqa: E402
 from .columns import APPLICATIONS, HOME, Entry, MillerView, describe, git_branch, human_date, human_size, short_path  # noqa: E402
 from .preview import Preview  # noqa: E402
@@ -188,6 +188,7 @@ class Window(Gtk.ApplicationWindow):
         self.side.add_named(self.keys, "keys")
         self.side.add_named(self._options_page(), "options")
         self.side.add_named(self._actions_page(), "actions")
+        self.side.add_named(self._commands_page(), "commands")
         self.inner = Gtk.Paned()
         self.inner.pack1(self.view, True, False)
         self.inner.pack2(self.side, False, False)
@@ -595,6 +596,8 @@ class Window(Gtk.ApplicationWindow):
             self.focus_actions()
         elif page == "options":
             self.options_first.grab_focus()
+        elif page == "commands":
+            self.cmd_name.grab_focus()
         elif page == "keys":
             self.keys.filter.grab_focus()
         elif page == "search":
@@ -964,6 +967,138 @@ class Window(Gtk.ApplicationWindow):
         page.pack_start(scroller, True, True, 0)
         return page
 
+    # -- your commands (Run Command in the menu / Actions) -------------------------
+
+    def _commands_page(self):
+        """The Commands page: your commands (edit, delete) and a form to add or change one."""
+        self._editing = None     # the index of the command in the form, None: a new one
+        header = Gtk.Box(spacing=6)
+        title = Gtk.Label(label="Commands", xalign=0)
+        title.get_style_context().add_class("qfm-pane-heading")
+        close = Gtk.Button.new_from_icon_name("window-close-symbolic", Gtk.IconSize.MENU)
+        close.set_relief(Gtk.ReliefStyle.NONE)
+        close.set_tooltip_text("Close (Esc)")
+        close.connect("clicked", lambda *_: self.close_keys())
+        header.pack_start(title, True, True, 0)
+        header.pack_start(close, False, False, 0)
+
+        self.commands_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        form = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4, margin_top=10)
+        self.form_title = Gtk.Label(label="NEW COMMAND", xalign=0)
+        self.form_title.get_style_context().add_class("qfm-section")
+        self.cmd_name = Gtk.Entry(placeholder_text="Name, e.g. Convert to JPEG")
+        self.cmd_line = Gtk.Entry(placeholder_text="Command, e.g. magick %f %f.jpg")
+        self.cmd_line.get_style_context().add_class("mono")
+        self.cmd_for = Gtk.Entry(placeholder_text="For: *.png *.webp  (empty: anything)")
+        self.cmd_terminal = Gtk.CheckButton(label="Run in a terminal (it waits for Enter at the end)")
+        buttons = Gtk.Box(spacing=6)
+        self.cmd_save = Gtk.Button(label="Add")
+        self.cmd_save.get_style_context().add_class("suggested-action")
+        self.cmd_save.connect("clicked", lambda *_: self._save_command())
+        self.cmd_cancel = Gtk.Button(label="Cancel edit")
+        self.cmd_cancel.connect("clicked", lambda *_: self._edit_command(None))
+        self.cmd_cancel.set_no_show_all(True)
+        buttons.pack_end(self.cmd_save, False, False, 0)
+        buttons.pack_end(self.cmd_cancel, False, False, 0)
+        for entry in (self.cmd_name, self.cmd_line, self.cmd_for):
+            entry.connect("activate", lambda *_: self._save_command())
+        help_text = Gtk.Label(xalign=0, wrap=True, max_width_chars=34, margin_top=6, use_markup=True, label=(
+            "<tt>%f</tt> the item   <tt>%F</tt> all selected\n<tt>%n</tt> its name   <tt>%N</tt> all names\n"
+            "<tt>%d</tt> their folder\nWith <tt>%f</tt> / <tt>%n</tt> it runs once per item; with none, "
+            "the items go at the end. It runs in their folder."))
+        help_text.get_style_context().add_class("qfm-preview-key")
+        for widget in (self.form_title, self.cmd_name, self.cmd_line, self.cmd_for, self.cmd_terminal, buttons,
+                       help_text):
+            form.pack_start(widget, False, False, 0)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        box.pack_start(self.commands_list, False, False, 0)
+        box.pack_start(form, False, False, 0)
+        scroller = Gtk.ScrolledWindow(vexpand=True, hscrollbar_policy=Gtk.PolicyType.NEVER)
+        scroller.add(box)
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6,
+                       margin_start=8, margin_end=8, margin_top=8, margin_bottom=8)
+        page.pack_start(header, False, False, 0)
+        page.pack_start(scroller, True, True, 0)
+        self._list_commands()
+        return page
+
+    def _list_commands(self):
+        for child in self.commands_list.get_children():
+            child.destroy()
+        if not self.store.commands:
+            empty = Gtk.Label(label="No commands yet - add one below. They show in the menu's Run Command.",
+                              xalign=0, wrap=True, max_width_chars=34)
+            empty.get_style_context().add_class("qfm-preview-key")
+            self.commands_list.pack_start(empty, False, False, 0)
+        for i, cmd in enumerate(self.store.commands):
+            row = Gtk.Box(spacing=4)
+            text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+            name = Gtk.Label(label=cmd["name"] + ("   ▭ terminal" if cmd.get("terminal") else ""), xalign=0,
+                             ellipsize=Pango.EllipsizeMode.END)
+            line = Gtk.Label(label=cmd["command"] + (f"   · for {cmd['patterns']}" if cmd.get("patterns") else ""),
+                             xalign=0, ellipsize=Pango.EllipsizeMode.END)
+            line.get_style_context().add_class("qfm-preview-key")
+            line.get_style_context().add_class("mono")
+            text.pack_start(name, False, False, 0)
+            text.pack_start(line, False, False, 0)
+            row.pack_start(text, True, True, 0)
+            for icon, tip, callback in (("document-edit-symbolic", "Edit", lambda _, i=i: self._edit_command(i)),
+                                        ("user-trash-symbolic", "Delete", lambda _, i=i: self._delete_command(i))):
+                button = Gtk.Button.new_from_icon_name(icon, Gtk.IconSize.MENU)
+                button.set_relief(Gtk.ReliefStyle.NONE)
+                button.set_tooltip_text(tip)
+                button.connect("clicked", callback)
+                row.pack_start(button, False, False, 0)
+            self.commands_list.pack_start(row, False, False, 0)
+        self.commands_list.show_all()
+
+    def _edit_command(self, index):
+        """Put command index into the form (None: an empty form for a new one)."""
+        self._editing = index
+        cmd = self.store.commands[index] if index is not None else commands.new()
+        self.cmd_name.set_text(cmd["name"])
+        self.cmd_line.set_text(cmd["command"])
+        self.cmd_for.set_text(cmd.get("patterns", ""))
+        self.cmd_terminal.set_active(bool(cmd.get("terminal")))
+        self.form_title.set_text("NEW COMMAND" if index is None else "EDIT COMMAND")
+        self.cmd_save.set_label("Add" if index is None else "Save")
+        self.cmd_cancel.set_visible(index is not None)
+        self.cmd_name.grab_focus()
+
+    def _save_command(self):
+        cmd = commands.new(self.cmd_name.get_text().strip(), self.cmd_line.get_text().strip(),
+                           self.cmd_for.get_text().strip(), self.cmd_terminal.get_active())
+        if not cmd["name"] or not cmd["command"]:
+            return self.flash("A command needs a name and a command line", error=True)
+        if self._editing is None:
+            self.store.commands.append(cmd)
+        else:
+            self.store.commands[self._editing] = cmd
+        self.store.save_commands()
+        self.flash(f"Saved “{cmd['name']}” - it's in the menu's Run Command")
+        self._list_commands()
+        self._edit_command(None)
+
+    def _delete_command(self, index):
+        cmd = self.store.commands.pop(index)
+        self.store.save_commands()
+        if self._editing == index:
+            self._edit_command(None)
+        elif self._editing is not None and self._editing > index:
+            self._editing -= 1
+        self._list_commands()
+        self.flash(f"Deleted “{cmd['name']}”")
+
+    def toggle_commands(self):
+        """The Commands page in the side pane (from Run Command → Add or Edit Commands…)."""
+        if self.side.get_visible() and self.side.get_visible_child_name() == "commands":
+            return self.close_keys()
+        self.preview.stop_media()
+        self.side.set_visible_child_name("commands")
+        self.side.set_visible(True)
+        self._edit_command(None)
+
     def _after_action(self):
         """An action in the panel ran: show what's true now (Add / Remove Bookmark, …)."""
         GLib.timeout_add(150, lambda: (self.side.get_visible_child_name() == "actions"
@@ -1232,9 +1367,9 @@ class Window(Gtk.ApplicationWindow):
         mods = event.state & Gtk.accelerator_get_default_mod_mask()
         ctrl, shift = Gdk.ModifierType.CONTROL_MASK, Gdk.ModifierType.SHIFT_MASK
         typing = isinstance(self.get_focus(), Gtk.Entry)
-        if (key == Gdk.KEY_Escape and mods == 0 and isinstance(self.get_focus(), Gtk.SpinButton)
-                and self.side.get_visible_child_name() == "options"):
-            self.close_options()          # (a number box in Options is an entry, but Esc still closes)
+        if (key == Gdk.KEY_Escape and mods == 0 and typing and self.get_focus().is_ancestor(self.side)
+                and self.side.get_visible_child_name() in ("options", "commands")):
+            self.close_options()          # (from a box in Options or the Commands form, Esc still closes)
             return True
         if key == Gdk.KEY_F1 and mods == 0:
             self.toggle_keys()
@@ -1342,7 +1477,8 @@ class Window(Gtk.ApplicationWindow):
             elif (self.side.get_visible() and self.side.get_visible_child_name() == "actions"
                   and self.actions_pages.get_visible_child_name() != "main"):
                 self.actions_pages.set_visible_child_name("main")     # a submenu's page: back
-            elif self.side.get_visible() and self.side.get_visible_child_name() in ("keys", "options", "actions"):
+            elif self.side.get_visible() and self.side.get_visible_child_name() in ("keys", "options", "actions",
+                                                                                     "commands"):
                 self.close_keys()
             elif self.progress.cancel_all():
                 self.flash("Cancelling…")

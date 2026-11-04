@@ -5,7 +5,7 @@ import shutil
 
 from gi.repository import Gdk, Gio, GLib, Gtk, Pango
 
-from . import archive
+from . import archive, commands
 from .columns import describe
 from . import templates
 from .store import COLORS
@@ -541,6 +541,15 @@ def fill_actions(menu, win, entry, entries):
         menu.item("Extract Here", ops.extract_here, "archive-extract-symbolic")
     if (archives and len(archives) == len(targets)) or (ops.in_archive() and targets):
         menu.item("Extract To…", ops.extract_to, "folder-download-symbolic")
+
+    mine = [c for c in win.store.commands if commands.applies(c, entries)]
+    run = menu.submenu("Run Command", "utilities-terminal-symbolic")
+    for cmd in mine:
+        run.item(cmd["name"], lambda c=cmd: commands.run(win, c, entries, find_terminal),
+                 "utilities-terminal-symbolic" if cmd.get("terminal") else "system-run-symbolic")
+    if mine:
+        run.separator()
+    run.item("Add or Edit Commands…", win.toggle_commands, "document-edit-symbolic")
 
     menu.separator()
     menu.item("Show in File Manager", lambda: reveal(win, entries), "system-file-manager-symbolic",

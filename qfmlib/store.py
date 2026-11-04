@@ -62,6 +62,11 @@ class Store:
         self.options = {key: saved.get(key, value) for key, value in DEFAULT_OPTIONS.items()}
         self.bookmarks = [p for p in _load("bookmarks.json", []) if isinstance(p, str)]
         self.colors = {p: c for p, c in _load("colors.json", {}).items() if c in COLORS}
+        from .commands import valid
+        self.commands = [c for c in _load("commands.json", []) if valid(c)]   # your commands (commands.py)
+
+    def save_commands(self):
+        _save("commands.json", self.commands)
 
     def save_options(self):
         _save("options.json", self.options)
