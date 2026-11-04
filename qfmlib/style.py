@@ -68,20 +68,36 @@ def tint(pixbuf, hex_color):
 
 
 class Icons:
-    """Icon pixbufs by content type, size and folder color, cached."""
+    """Icon pixbufs by content type, size and folder color, cached. They're loaded at the display's
+    scale (a 16px icon is 32 pixels on a 2x screen), so show them with image() or cell_func(), which
+    draw them at their logical size, not with a plain Gtk.Image or pixbuf attribute (that'd blur them)."""
 
     def __init__(self):
         self.theme = Gtk.IconTheme.get_default()
+        self.scale = 1
         self.cache = {}
-        self.theme.connect("changed", lambda *_: self.cache.clear())
+        self.surfaces = {}
+        self.theme.connect("changed", lambda *_: self.clear())
+
+    def clear(self):
+        self.cache.clear()
+        self.surfaces.clear()
+
+    def set_scale(self, scale):
+        """True if it changed (icons shown so far should be redrawn)."""
+        if scale == self.scale:
+            return False
+        self.scale = scale
+        self.clear()
+        return True
 
     def get(self, content_type, size=16, color=None):
         key = (content_type, size, color)
         pixbuf = self.cache.get(key)
         if pixbuf is None:
             flags = Gtk.IconLookupFlags.FORCE_SIZE
-            info = (self.theme.lookup_by_gicon(Gio.content_type_get_icon(content_type), size, flags)
-                    or self.theme.lookup_icon("text-x-generic", size, flags))
+            info = (self.theme.lookup_by_gicon_for_scale(Gio.content_type_get_icon(content_type), size, self.scale, flags)
+                    or self.theme.lookup_icon_for_scale("text-x-generic", size, self.scale, flags))
             try:
                 pixbuf = info.load_icon() if info else None
             except GLib.Error:
@@ -93,3 +109,22 @@ class Icons:
 
     def for_entry(self, entry, colors, size=16):
         return self.get(entry.content_type, size, colors.get(entry.path) if entry.is_dir else None)
+
+    def surface(self, pixbuf):
+        """pixbuf (from get()) as a cairo surface drawn at its logical size."""
+        if pixbuf is None:
+            return None
+        surface = self.surfaces.get(pixbuf)
+        if surface is None:
+            surface = self.surfaces[pixbuf] = Gdk.cairo_surface_create_from_pixbuf(pixbuf, self.scale, None)
+        return surface
+
+    def image(self, pixbuf, image=None):
+        """A Gtk.Image showing pixbuf (from get()) sharply; or sets image to it."""
+        image = image or Gtk.Image()
+        image.set_from_surface(self.surface(pixbuf))
+        return image
+
+    def cell_func(self, column, cell, model, it, index):
+        """A cell data func for a CellRendererPixbuf showing the pixbuf in model column index."""
+        cell.set_property("surface", self.surface(model.get_value(it, index)))

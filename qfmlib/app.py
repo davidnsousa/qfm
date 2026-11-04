@@ -59,6 +59,8 @@ class Window(Gtk.ApplicationWindow):
         self.set_default_size(min(options["window_width"], area.width * 9 // 10),
                               min(options["window_height"], area.height * 9 // 10))
         self.set_icon_name("system-file-manager")
+        self.icons.set_scale(self.get_scale_factor())
+        self.connect("notify::scale-factor", lambda *_: self._scale_changed())
 
         self.view = MillerView(self)
         self.preview = Preview(self)
@@ -459,6 +461,13 @@ class Window(Gtk.ApplicationWindow):
 
     # -- sidebar: places and bookmarks ---------------------------------------
 
+    def _scale_changed(self):
+        """Moved to a screen with another scale: reload the icons at that scale."""
+        if self.icons.set_scale(self.get_scale_factor()):
+            self.view.refresh_all()
+            self.rebuild_sidebar()
+            self.refresh_preview()
+
     def rebuild_sidebar(self):
         for row in self.sidebar.get_children():
             row.destroy()
@@ -491,7 +500,7 @@ class Window(Gtk.ApplicationWindow):
                 image = Gtk.Image.new_from_icon_name("dialog-warning-symbolic", Gtk.IconSize.MENU)
                 row.set_tooltip_text(f"{short_path(path)} (missing - Delete removes it)")
             else:
-                image = Gtk.Image.new_from_pixbuf(self.icons.for_entry(entry, self.store.colors))
+                image = self.icons.image(self.icons.for_entry(entry, self.store.colors))
                 row.set_tooltip_text(short_path(path))
         box.pack_start(image, False, False, 0)
         box.pack_start(Gtk.Label(label=name, xalign=0, ellipsize=Pango.EllipsizeMode.END), True, True, 0)

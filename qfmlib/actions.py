@@ -170,13 +170,13 @@ def copy_path(win, entries):
 
 # -- the menu (right-click, Menu key, Shift+F10, Ctrl+O) ------------------------
 
-def _image(icon_name=None, gicon=None, pixbuf=None):
+def _image(icon_name=None, gicon=None, surface=None):
     if icon_name:
         image = Gtk.Image.new_from_icon_name(icon_name, Gtk.IconSize.MENU)
     elif gicon:
         image = Gtk.Image.new_from_gicon(gicon, Gtk.IconSize.MENU)
-    elif pixbuf:
-        image = Gtk.Image.new_from_pixbuf(pixbuf)
+    elif surface:
+        image = Gtk.Image.new_from_surface(surface)
     else:
         image = Gtk.Image()
     image.set_pixel_size(16)
@@ -184,7 +184,7 @@ def _image(icon_name=None, gicon=None, pixbuf=None):
     return image
 
 
-def _item(menu, text, callback=None, icon=None, key=None, mods=0, gicon=None, pixbuf=None):
+def _item(menu, text, callback=None, icon=None, key=None, mods=0, gicon=None, surface=None):
     """A menu item with an icon, a label and (optionally) its shortcut shown on the right."""
     item = Gtk.MenuItem()
     box = Gtk.Box(spacing=10)
@@ -192,7 +192,7 @@ def _item(menu, text, callback=None, icon=None, key=None, mods=0, gicon=None, pi
     label.set_accel_widget(item)
     if key:
         label.set_accel(key, mods)
-    box.pack_start(_image(icon, gicon, pixbuf), False, False, 0)
+    box.pack_start(_image(icon, gicon, surface), False, False, 0)
     box.pack_start(label, True, True, 0)
     item.add(box)
     if callback:
@@ -295,8 +295,8 @@ def build_menu(win, entry, entries):
         for i, name in enumerate(COLORS):
             mark = "  ✓" if current == {name} else ""
             _item(colors, name.capitalize() + mark, lambda n=name: win.set_color(n), key=Gdk.KEY_1 + i, mods=ctrl,
-                  pixbuf=win.icons.get("inode/directory", 16, name))
+                  surface=win.icons.surface(win.icons.get("inode/directory", 16, name)))
         _item(colors, "None", lambda: win.set_color(None), key=Gdk.KEY_0, mods=ctrl,
-              pixbuf=win.icons.get("inode/directory", 16))
+              surface=win.icons.surface(win.icons.get("inode/directory", 16)))
     menu.show_all()
     return menu

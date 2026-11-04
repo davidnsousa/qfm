@@ -75,7 +75,7 @@ class SearchPane(Gtk.Box):
         column = Gtk.TreeViewColumn()
         icon = Gtk.CellRendererPixbuf(xpad=4)
         column.pack_start(icon, False)
-        column.add_attribute(icon, "pixbuf", 0)
+        column.set_cell_data_func(icon, window.icons.cell_func, 0)
         name = Gtk.CellRendererText(ellipsize=Pango.EllipsizeMode.MIDDLE)
         column.pack_start(name, True)
         column.add_attribute(name, "markup", 1)

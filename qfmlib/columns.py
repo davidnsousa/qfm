@@ -158,7 +158,7 @@ class Column(Gtk.Overlay):
         name.set_expand(True)
         icon = Gtk.CellRendererPixbuf(xpad=4)
         name.pack_start(icon, False)
-        name.add_attribute(icon, "pixbuf", C_ICON)
+        name.set_cell_data_func(icon, self.view.icons.cell_func, C_ICON)
         text = Gtk.CellRendererText(ellipsize=Pango.EllipsizeMode.MIDDLE)
         name.pack_start(text, True)
         name.add_attribute(text, "text", C_NAME)

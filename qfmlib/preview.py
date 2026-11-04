@@ -305,7 +305,10 @@ class Preview(Gtk.Box):
                 scale = min(1.0, 320 / max(cover.get_width(), cover.get_height()))
                 cover = cover.scale_simple(max(1, int(cover.get_width() * scale)),
                                            max(1, int(cover.get_height() * scale)), GdkPixbuf.InterpType.BILINEAR)
-            self.cover.set_from_pixbuf(cover or self.window.icons.for_entry(entry, self.window.store.colors, 128))
+            if cover is not None:
+                self.cover.set_from_pixbuf(cover)
+            else:
+                self.window.icons.image(self.window.icons.for_entry(entry, self.window.store.colors, 128), self.cover)
             self.media_view.set_visible_child_name("cover")
         self.stack.set_visible_child_name("media")
         self._media_changed()
@@ -552,7 +555,7 @@ class Preview(Gtk.Box):
         if entry is None:
             self.icon.clear()
         else:
-            self.icon.set_from_pixbuf(self.window.icons.for_entry(entry, self.window.store.colors, 128))
+            self.window.icons.image(self.window.icons.for_entry(entry, self.window.store.colors, 128), self.icon)
         self.stack.set_visible_child_name("icon")
 
     # -- pictures ------------------------------------------------------------
