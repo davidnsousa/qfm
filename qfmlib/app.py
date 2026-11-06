@@ -1261,8 +1261,8 @@ class Window(Gtk.ApplicationWindow):
         folder_thumbs.connect("toggled", lambda b: (self._set_option("folder_thumbnails", b.get_active()),
                                                     self.refresh_preview()))
         box.pack_start(folder_thumbs, False, False, 0)
-        note(f"A folder's preview shows its first {GRID_LIMIT} images, videos, PDFs… "
-             "Click one to open the folder with it selected.")
+        note(f"A folder's preview lists what's in it by kind, then thumbnails of its first "
+             f"{GRID_LIMIT} images, videos, PDFs… Click one to open the folder with it selected.")
         heading("Window")
         dialog = Gtk.RadioButton(label="Quick dialog", active=self.options["window_mode"] == "dialog")
         normal = Gtk.RadioButton(label="Normal window", group=dialog, active=self.options["window_mode"] == "normal")

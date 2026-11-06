@@ -27,8 +27,9 @@ A keyboard-driven file manager for Linux (GTK3) with Miller columns.
 **Preview**
 - Images (SVG included), text with syntax highlighting, PDFs, Illustrator, PostScript and
   EPS files, 3D models (STL, OBJ, PLY), and video and audio playback.
-- Folders show thumbnails of the first 24 images, videos, PDFs and models in them. Click one
-  to open the folder with it selected. Can be turned off in Options.
+- Folders show what's in them by kind (folders, images, documents, …), then thumbnails of
+  the first 24 images, videos, PDFs and models. Click a thumbnail to open the folder with it
+  selected. The thumbnails can be turned off in Options.
 - Preview and Properties tabs (Ctrl+I), or one panel. Permissions can be changed in
   Properties with checkboxes.
 

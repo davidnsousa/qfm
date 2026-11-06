@@ -198,6 +198,49 @@ def stat_rows(path):
     return rows
 
 
+# a folder's contents by kind: group -> (icon, one, many), in the order shown
+GROUPS = {
+    "folder": ("folder-symbolic", "folder", "folders"),
+    "image": ("image-x-generic-symbolic", "image", "images"),
+    "video": ("video-x-generic-symbolic", "video", "videos"),
+    "audio": ("audio-x-generic-symbolic", "audio file", "audio files"),
+    "pdf": ("x-office-document-symbolic", "PDF", "PDFs"),
+    "document": ("x-office-document-symbolic", "document", "documents"),
+    "spreadsheet": ("x-office-spreadsheet-symbolic", "spreadsheet", "spreadsheets"),
+    "presentation": ("x-office-presentation-symbolic", "presentation", "presentations"),
+    "archive": ("package-x-generic-symbolic", "archive", "archives"),
+    "text": ("text-x-generic-symbolic", "text or code file", "text and code files"),
+    "other": ("application-x-generic-symbolic", "other file", "other files"),
+}
+DOCUMENT_HINTS = ("msword", "wordprocessingml", "opendocument.text", "sun.xml.writer", "rtf", "epub",
+                  "abiword", "x-mobipocket", "djvu")
+SPREADSHEET_HINTS = ("ms-excel", "spreadsheetml", "opendocument.spreadsheet", "sun.xml.calc", "text/csv",
+                     "gnumeric")
+PRESENTATION_HINTS = ("ms-powerpoint", "presentationml", "opendocument.presentation", "sun.xml.impress")
+
+
+def group_of(entry):
+    """Which GROUPS line entry counts in."""
+    if entry.is_dir:
+        return "folder"
+    ct = entry.content_type
+    if ct == "application/x-zerosize":        # empty: what its name says it is
+        ct = Gio.content_type_guess(entry.name, None)[0]
+    if ct.startswith(("image/", "video/", "audio/")):
+        return ct.split("/")[0]
+    if ct == "application/pdf":
+        return "pdf"
+    for group, hints in (("spreadsheet", SPREADSHEET_HINTS), ("presentation", PRESENTATION_HINTS),
+                         ("document", DOCUMENT_HINTS)):
+        if any(h in ct for h in hints):
+            return group
+    if archive.is_archive(entry.name) and not entry.container:
+        return "archive"
+    if ct.startswith("text/") or ct in TEXT_TYPES or Gio.content_type_is_a(ct, "text/plain"):
+        return "text"
+    return "other"
+
+
 def count_items(path, show_hidden):
     count = 0
     with os.scandir(path) as it:
@@ -276,53 +319,69 @@ class Preview(Gtk.Box):
         self.layout_tabs()
         self.connect("style-updated", lambda *_: self._pick_scheme())
 
-    # -- folders: a grid of thumbnails of what's in them ---------------------------
+    # -- folders: what's in them by kind, and thumbnails of their pictures ---------
 
     def _grid_page(self):
+        self.contents = Gtk.Grid(column_spacing=8, row_spacing=4, margin_bottom=6)
+        self.thumbs_heading = Gtk.Label(label="THUMBNAILS", xalign=0, no_show_all=True)
+        self.thumbs_heading.get_style_context().add_class("qfm-section")
         self.grid = Gtk.FlowBox(homogeneous=True, selection_mode=Gtk.SelectionMode.NONE,
                                 activate_on_single_click=True, valign=Gtk.Align.START,
                                 column_spacing=4, row_spacing=4, max_children_per_line=16)
         self.grid.get_style_context().add_class("qfm-folder-grid")
         self.grid.connect("child-activated", self._on_grid_item)
-        scroller = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
-        scroller.add(self.grid)
-        self.grid_scroller = scroller
         self.grid_more = Gtk.Label(xalign=0.5, margin_top=4)
         self.grid_more.get_style_context().add_class("qfm-preview-key")
-        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        page.pack_start(scroller, True, True, 0)
-        page.pack_start(self.grid_more, False, False, 0)
-        return page
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, valign=Gtk.Align.START)
+        box.pack_start(self.contents, False, False, 0)
+        box.pack_start(self.thumbs_heading, False, False, 0)
+        box.pack_start(self.grid, False, False, 4)
+        box.pack_start(self.grid_more, False, False, 0)
+        scroller = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)   # all of it scrolls
+        scroller.add(box)
+        self.grid_scroller = scroller
+        return scroller
 
     def _clear_grid(self):
-        for child in self.grid.get_children():
+        for child in self.grid.get_children() + self.contents.get_children():
             child.destroy()
+        self.thumbs_heading.hide()
         self.grid_more.set_text("")
         self.grid_scroller.get_vadjustment().set_value(0)
 
-    def _folder_grid(self, folder, token):
-        """The first GRID_LIMIT files in folder that have a thumbnail (in the columns' sort
-        order), found and made in a thread; the grid shows once the first one is ready, so
-        folders without any keep their icon."""
+    def _folder_contents(self, folder, token, pictures):
+        """In a thread: how many of each kind of thing are directly in folder, then (with
+        pictures) thumbnails of the first GRID_LIMIT files that have one, in the columns'
+        sort order. An empty folder keeps its icon."""
         options = self.window.store.options
         show_hidden, field, descending = options["show_hidden"], options["sort"], options["descending"]
         pixels = GRID_CELL * self.window.icons.scale
         cache = self.window.view.thumb_cache
 
         def work():
-            files = []
+            counts, files, capped = {}, [], False
             try:
                 enumerator = Gio.File.new_for_path(folder.path).enumerate_children(
                     ATTRIBUTES, Gio.FileQueryInfoFlags.NONE, None)
                 for count, info in enumerate(enumerator):
-                    if token != self.token or count >= COUNT_LIMIT:
+                    if token != self.token:
+                        return
+                    if count >= COUNT_LIMIT:
+                        capped = True
                         break
                     e = Entry.from_info(folder.path, info)
-                    if (show_hidden or not e.hidden) and thumbs.can_thumbnail(e):
+                    if not show_hidden and e.hidden:
+                        continue
+                    group = group_of(e)
+                    counts[group] = counts.get(group, 0) + 1
+                    if pictures and thumbs.can_thumbnail(e):
                         files.append(e)
                 enumerator.close(None)
             except GLib.Error:
                 return
+            if not counts:
+                return
+            GLib.idle_add(self._show_contents, token, counts, capped)
             shown = tried = 0
             for e in sort_entries(files, field, descending):
                 if token != self.token or shown >= GRID_LIMIT:
@@ -336,8 +395,27 @@ class Preview(Gtk.Box):
                 GLib.idle_add(lambda: token == self.token and self.grid_more.set_text(
                     f"+ {len(files) - tried} more") and False)
 
-        if token == self.token and folder.archive is None:
+        if folder.archive is None:
             threading.Thread(target=work, daemon=True).start()
+
+    def _show_contents(self, token, counts, capped):
+        """One line per kind: a small icon, then "12 folders"."""
+        if token != self.token:
+            return False
+        row = 0
+        for group, (icon, one, many) in GROUPS.items():
+            n = counts.get(group)
+            if not n:
+                continue
+            image = Gtk.Image.new_from_icon_name(icon, Gtk.IconSize.MENU)
+            image.get_style_context().add_class("qfm-preview-key")
+            label = Gtk.Label(label=f"{n}{'+' if capped else ''} {one if n == 1 else many}", xalign=0)
+            self.contents.attach(image, 0, row, 1, 1)
+            self.contents.attach(label, 1, row, 1, 1)
+            row += 1
+        self.contents.show_all()
+        self.stack.set_visible_child_name("grid")
+        return False
 
     def _add_thumb(self, token, entry, picture, pixels):
         if token != self.token:
@@ -350,8 +428,7 @@ class Preview(Gtk.Box):
         child.add(image)
         child.show_all()
         self.grid.add(child)
-        if self.stack.get_visible_child_name() != "grid":
-            self.stack.set_visible_child_name("grid")
+        self.thumbs_heading.show()
         return False
 
     def _on_grid_item(self, grid, child):
@@ -540,8 +617,8 @@ class Preview(Gtk.Box):
         self._show_icon(entry)
         kind = kind_of(entry)
         show_hidden = self.window.store.options["show_hidden"]
-        if kind == "folder" and self.window.store.options["folder_thumbnails"]:
-            self._folder_grid(entry, token)
+        if kind == "folder":
+            self._folder_contents(entry, token, self.window.store.options["folder_thumbnails"])
 
         def work():
             result, extra, sniffed, extracted = None, [], None, None
