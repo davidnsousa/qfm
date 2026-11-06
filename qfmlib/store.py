@@ -32,7 +32,7 @@ DEFAULT_OPTIONS = {
     "sidebar_width": 190,
     "preview_width": 380,
     "archive_format": ".zip",  # last format picked in Compress…
-    "window_mode": "dialog",   # dialog: floats, Esc closes, closes after opening; normal: a regular window
+    "window_mode": "dialog",   # dialog: floats, Esc closes, closes after opening or a drag out; normal: a regular window
     "default_fm": False,       # qfm opens folders and answers "Show in folder" (see fm1.py)
     "previous_folder_app": "", # the folder app before qfm, restored when default_fm is turned off
     "last": "",              # the last selected path, reopened by a plain `qfm`

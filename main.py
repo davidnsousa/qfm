@@ -12,8 +12,8 @@ usage:
 install / update: run ./install.sh from the source folder
 
 Options (gear button, Ctrl+,): sorting, columns and panels; a quick dialog (floats, Esc
-closes it, closes after opening a file) or a normal window; and qfm as the default file
-manager (folders, "Show in folder").
+closes it, closes after opening a file or dragging files out to another app) or a normal
+window; and qfm as the default file manager (folders, "Show in folder").
 Questions (names, confirmations, folders, apps) appear in a bar above the status bar.
 Drag files out of a column into other apps, or onto a folder in qfm. Archives browse like
 folders (read-only). Videos and audio play in the preview. F1 in qfm lists every key.

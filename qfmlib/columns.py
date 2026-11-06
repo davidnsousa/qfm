@@ -262,7 +262,8 @@ class Column(Gtk.Overlay):
         tree.enable_model_drag_source(Gdk.ModifierType.BUTTON1_MASK, targets,
                                       Gdk.DragAction.COPY | Gdk.DragAction.MOVE | Gdk.DragAction.LINK)
         tree.connect("drag-data-get", self._on_drag_data_get)
-        tree.connect("drag-end", lambda *_: setattr(view, "dragging", None))
+        tree.connect("drag-failed", self._on_drag_failed)
+        tree.connect("drag-end", self._on_drag_end)
         # files move, not rows: never let GTK delete the dragged rows from the list
         tree.connect("drag-data-delete", lambda t, _: t.stop_emission_by_name("drag-data-delete"))
         # drops (from qfm or other apps): onto a folder row = into it, elsewhere = into this folder
@@ -718,9 +719,21 @@ class Column(Gtk.Overlay):
 
     def _on_drag_begin(self, tree, context):
         self.view.dragging = [e.path for e in self.marked]
+        self.view.drag_outcome = None
         if self._click_path is not None:
             self._click_path = None
             tree.get_selection().set_select_function(lambda *_: True)
+
+    def _on_drag_failed(self, tree, context, result):
+        self.view.drag_outcome = "failed"
+        return False
+
+    def _on_drag_end(self, tree, context):
+        """A drag out of qfm ended: dropped into another app closes a quick dialog."""
+        outcome, self.view.drag_outcome = self.view.drag_outcome, None
+        self.view.dragging = None
+        if outcome is None:       # neither cancelled nor dropped onto qfm itself
+            self.view.window.close_after_open()
 
     def _on_drag_data_get(self, tree, context, data, info, time_):
         entries = self.marked
@@ -770,6 +783,8 @@ class Column(Gtk.Overlay):
 
     def _on_drag_received(self, tree, context, x, y, data, info, time_):
         tree.stop_emission_by_name("drag-data-received")   # (not GTK's row reordering)
+        if self.view.dragging is not None:
+            self.view.drag_outcome = "here"   # dropped onto qfm itself: keep the window
         paths = [Gio.File.new_for_uri(u).get_path() for u in (data.get_uris() or [])]
         paths = [p for p in paths if p]
         dest, _ = self._drop_target(x, y)
@@ -808,6 +823,7 @@ class MillerView(Gtk.ScrolledWindow):
         self._open_timer = 0
         self._reveal_target = None
         self.dragging = None      # paths being dragged out of a column (None: a drag from another app)
+        self.drag_outcome = None  # during a drag out: "failed" (cancelled/refused), "here" (dropped onto qfm)
         self.box = Gtk.Box()
         self.add(self.box)
         # Stands in for the next column while the focused one has none (a file is
