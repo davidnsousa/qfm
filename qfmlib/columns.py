@@ -703,6 +703,12 @@ class Column(Gtk.Overlay):
             return True
         mods = event.state & Gtk.accelerator_get_default_mod_mask()
         if (event.button == 1 and hit and not mods and selection.path_is_selected(hit[0])
+                and selection.count_selected_rows() == 1 and self in self.view.columns
+                and self.view.columns.index(self) < self.view.focus_index):
+            # the folder already highlighted on the way to a column further right: the
+            # selection doesn't change, so step back to it as ← would (preview included)
+            GLib.idle_add(self.view.back_to, self)
+        if (event.button == 1 and hit and not mods and selection.path_is_selected(hit[0])
                 and selection.count_selected_rows() > 1):
             # keep the multi-selection in case this starts a drag; a plain click
             # selects just this row on release (GTK 3 would drop the rest right away)
@@ -1039,6 +1045,12 @@ class MillerView(Gtk.ScrolledWindow):
             column.clear_selection()
         self.focus(parent)
         self.window.selection_changed(parent.selected)
+
+    def back_to(self, column):
+        """column's highlighted row was clicked while a column further right had the focus."""
+        if column in self.columns and self.columns.index(column) + 1 < len(self.columns):
+            self.go_left(self.columns[self.columns.index(column) + 1])
+        return False
 
     def activate(self, column):
         entry = column.selected
