@@ -48,6 +48,8 @@ CSS = b"""
 .qfm-action { padding: 3px 6px; min-height: 0; }
 .qfm-action label { font-weight: normal; }
 .qfm-perms { padding: 6px 12px; border-radius: 6px; background-color: alpha(@theme_fg_color, 0.04); }
+.qfm-folder-grid flowboxchild { padding: 2px; border-radius: 4px; }
+.qfm-folder-grid flowboxchild:hover { background-color: alpha(@theme_fg_color, 0.08); }
 .qfm-section { font-size: 8pt; font-weight: bold; color: alpha(@theme_fg_color, 0.45); margin-top: 6px; }
 .mono { font-family: "JetBrainsMonoNL Nerd Font", monospace; font-size: 9pt; }
 """

@@ -1,5 +1,5 @@
 """Preview pane: images, text (GtkSourceView), the first page of PDFs and other vector files,
-3D models, folder item counts, and file info. Files are read in a worker thread; a newer selection discards older results."""
+3D models, folders (item counts, and a grid of thumbnails of what's in them), and file info. Files are read in a worker thread; a newer selection discards older results."""
 import grp
 import os
 import pwd
@@ -16,8 +16,8 @@ gi.require_version("GtkSource", "4")
 gi.require_version("Poppler", "0.18")
 from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk, GtkSource, Pango, Poppler  # noqa: E402
 
-from . import archive, media, models, trash  # noqa: E402
-from .columns import describe, human_date, human_size, short_path  # noqa: E402
+from . import archive, media, models, thumbs, trash  # noqa: E402
+from .columns import ATTRIBUTES, Entry, describe, human_date, human_size, short_path, sort_entries  # noqa: E402
 
 TEXT_LIMIT = 256 * 1024       # bytes of a text file shown
 UNKNOWN_TEXT_LIMIT = 1 << 20  # files of unknown type up to this size are tried as text
@@ -25,6 +25,8 @@ IMAGE_LIMIT = 2048            # images are decoded at most this big
 PDF_WIDTH = 1000              # PDF pages are rendered this wide
 COUNT_LIMIT = 100000          # folder items counted
 ARCHIVED_LIMIT = 64 << 20     # files inside archives bigger than this aren't extracted to preview
+GRID_LIMIT = 24               # thumbnails shown for a folder (Options: Thumbnails of what's in folders)
+GRID_CELL = 80                # their size, in pixels
 SIZE_SECONDS = 1.5            # time spent adding up a folder's total size before showing "so far"
 # the Preview tab's one line: these properties, worded so they read without their names
 SUMMARY = (("Size", "{}"), ("Dimensions", "{}"), ("Pages", "{} pages"), ("Duration", "{}"),
@@ -235,6 +237,7 @@ class Preview(Gtk.Box):
         self.icon = Gtk.Image(valign=Gtk.Align.START, margin_top=24, margin_bottom=16)
         self.stack.add_named(self.icon, "icon")
         self.stack.add_named(self._media_page(), "media")
+        self.stack.add_named(self._grid_page(), "grid")
         self.info = Gtk.Grid(column_spacing=12, row_spacing=3)
         self.filler = Gtk.Box()   # keeps icon + info at the top when there's no picture or text
         self.preview_heading = Gtk.Label(label="PREVIEW", xalign=0)
@@ -272,6 +275,89 @@ class Preview(Gtk.Box):
         self.stack.connect("notify::visible-child-name", self._on_mode)
         self.layout_tabs()
         self.connect("style-updated", lambda *_: self._pick_scheme())
+
+    # -- folders: a grid of thumbnails of what's in them ---------------------------
+
+    def _grid_page(self):
+        self.grid = Gtk.FlowBox(homogeneous=True, selection_mode=Gtk.SelectionMode.NONE,
+                                activate_on_single_click=True, valign=Gtk.Align.START,
+                                column_spacing=4, row_spacing=4, max_children_per_line=16)
+        self.grid.get_style_context().add_class("qfm-folder-grid")
+        self.grid.connect("child-activated", self._on_grid_item)
+        scroller = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
+        scroller.add(self.grid)
+        self.grid_scroller = scroller
+        self.grid_more = Gtk.Label(xalign=0.5, margin_top=4)
+        self.grid_more.get_style_context().add_class("qfm-preview-key")
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        page.pack_start(scroller, True, True, 0)
+        page.pack_start(self.grid_more, False, False, 0)
+        return page
+
+    def _clear_grid(self):
+        for child in self.grid.get_children():
+            child.destroy()
+        self.grid_more.set_text("")
+        self.grid_scroller.get_vadjustment().set_value(0)
+
+    def _folder_grid(self, folder, token):
+        """The first GRID_LIMIT files in folder that have a thumbnail (in the columns' sort
+        order), found and made in a thread; the grid shows once the first one is ready, so
+        folders without any keep their icon."""
+        options = self.window.store.options
+        show_hidden, field, descending = options["show_hidden"], options["sort"], options["descending"]
+        pixels = GRID_CELL * self.window.icons.scale
+        cache = self.window.view.thumb_cache
+
+        def work():
+            files = []
+            try:
+                enumerator = Gio.File.new_for_path(folder.path).enumerate_children(
+                    ATTRIBUTES, Gio.FileQueryInfoFlags.NONE, None)
+                for count, info in enumerate(enumerator):
+                    if token != self.token or count >= COUNT_LIMIT:
+                        break
+                    e = Entry.from_info(folder.path, info)
+                    if (show_hidden or not e.hidden) and thumbs.can_thumbnail(e):
+                        files.append(e)
+                enumerator.close(None)
+            except GLib.Error:
+                return
+            shown = tried = 0
+            for e in sort_entries(files, field, descending):
+                if token != self.token or shown >= GRID_LIMIT:
+                    break
+                tried += 1
+                picture = cache.get((e.path, e.modified, pixels)) or thumbs.thumbnail(e, pixels)
+                if picture is not None:
+                    shown += 1
+                    GLib.idle_add(self._add_thumb, token, e, picture, pixels)
+            if shown and tried < len(files):
+                GLib.idle_add(lambda: token == self.token and self.grid_more.set_text(
+                    f"+ {len(files) - tried} more") and False)
+
+        if token == self.token and folder.archive is None:
+            threading.Thread(target=work, daemon=True).start()
+
+    def _add_thumb(self, token, entry, picture, pixels):
+        if token != self.token:
+            return False
+        self.window.view.thumb_cache[(entry.path, entry.modified, pixels)] = picture
+        image = Gtk.Image()
+        image.set_from_surface(Gdk.cairo_surface_create_from_pixbuf(picture, self.window.icons.scale, None))
+        child = Gtk.FlowBoxChild(tooltip_text=entry.display, can_focus=False)
+        child.entry = entry
+        child.add(image)
+        child.show_all()
+        self.grid.add(child)
+        if self.stack.get_visible_child_name() != "grid":
+            self.stack.set_visible_child_name("grid")
+        return False
+
+    def _on_grid_item(self, grid, child):
+        """A thumbnail clicked: open its folder with it selected."""
+        entry = child.entry
+        self.window.view.go_to(os.path.dirname(entry.path), select=entry.name)
 
     # -- video and audio -------------------------------------------------------
 
@@ -440,6 +526,7 @@ class Preview(Gtk.Box):
         self._stop_animation()
         self.picture = None
         self.buffer.set_text("")
+        self._clear_grid()
         if entry is None:
             self.title.set_text("")
             self._set_info([])
@@ -453,6 +540,8 @@ class Preview(Gtk.Box):
         self._show_icon(entry)
         kind = kind_of(entry)
         show_hidden = self.window.store.options["show_hidden"]
+        if kind == "folder" and self.window.store.options["folder_thumbnails"]:
+            self._folder_grid(entry, token)
 
         def work():
             result, extra, sniffed, extracted = None, [], None, None
@@ -517,6 +606,7 @@ class Preview(Gtk.Box):
         self._stop_animation()
         self.picture = None
         self.buffer.set_text("")
+        self._clear_grid()
         files = [e for e in entries if not e.is_dir]
         folders = len(entries) - len(files)
         self.title.set_text(f"{len(entries)} items selected")

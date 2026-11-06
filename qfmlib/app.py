@@ -12,7 +12,7 @@ from gi.repository import Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
 from . import actions, archive, commands, fm1, media, style, trash  # noqa: E402
 from .fileops import FileOps  # noqa: E402
 from .columns import APPLICATIONS, HOME, Entry, MillerView, describe, git_branch, human_date, human_size, short_path  # noqa: E402
-from .preview import Preview  # noqa: E402
+from .preview import GRID_LIMIT, Preview  # noqa: E402
 from .promptbar import ProgressArea, PromptBar, complete_folder, matches_hint  # noqa: E402
 from .keyspane import KeysPane  # noqa: E402
 from .search import SearchPane  # noqa: E402
@@ -1256,6 +1256,13 @@ class Window(Gtk.ApplicationWindow):
         box.pack_start(tabs, False, False, 0)
         note("Ctrl+I switches tabs. With nothing to preview, the properties show.")
         box.pack_start(single, False, False, 0)
+        folder_thumbs = Gtk.CheckButton(label="Thumbnails of what's in folders",
+                                        active=self.options["folder_thumbnails"])
+        folder_thumbs.connect("toggled", lambda b: (self._set_option("folder_thumbnails", b.get_active()),
+                                                    self.refresh_preview()))
+        box.pack_start(folder_thumbs, False, False, 0)
+        note(f"A folder's preview shows its first {GRID_LIMIT} images, videos, PDFs… "
+             "Click one to open the folder with it selected.")
         heading("Window")
         dialog = Gtk.RadioButton(label="Quick dialog", active=self.options["window_mode"] == "dialog")
         normal = Gtk.RadioButton(label="Normal window", group=dialog, active=self.options["window_mode"] == "normal")

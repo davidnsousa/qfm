@@ -24,6 +24,7 @@ DEFAULT_OPTIONS = {
     "max_columns": 3,
     "thumbnails": False,     # pictures of images, PDFs, models… in the columns (bigger rows)
     "preview": True,
+    "folder_thumbnails": True,  # the preview of a folder shows thumbnails of what's in it
     "preview_layout": "tabs",  # tabs: Preview | Properties; single: properties below the preview
     "preview_tab": "preview",  # the tab last chosen
     "sidebar": True,
