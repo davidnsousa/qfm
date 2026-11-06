@@ -7,9 +7,10 @@ A keyboard-driven file manager for Linux (GTK3) with Miller columns.
 ## Features
 
 **Browsing**
-- Miller columns that fit the window: up to three panels (configurable) split the width,
-  with no horizontal scrolling; earlier ones are hidden and come back as you go left.
-  Scrolling columns are an option.
+- Miller columns of a fixed width. The preview takes the rest of the window, so it is
+  large near the top of a tree and narrower deeper down, but never narrower than a minimum
+  width; past that, the columns scroll sideways. Drag the line before the preview to set
+  that minimum. With the preview hidden, the space after the columns stays empty.
 - Opens as a floating window in the centre of the screen: Esc closes it, and it closes
   after opening something. It can also run as a normal window.
 - Places (Home, Applications, Computer, Trash), removable drives, and bookmarks (× or

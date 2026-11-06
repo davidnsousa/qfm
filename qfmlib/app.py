@@ -11,7 +11,7 @@ from gi.repository import Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
 
 from . import actions, archive, commands, fm1, media, style, trash  # noqa: E402
 from .fileops import FileOps  # noqa: E402
-from .columns import APPLICATIONS, HOME, Entry, MillerView, describe, git_branch, human_date, human_size, short_path  # noqa: E402
+from .columns import APPLICATIONS, HOME, Entry, MillerView, column_width, describe, git_branch, human_date, human_size, short_path  # noqa: E402
 from .preview import GRID_LIMIT, Preview  # noqa: E402
 from .promptbar import ProgressArea, PromptBar, complete_folder, matches_hint  # noqa: E402
 from .keyspane import KeysPane  # noqa: E402
@@ -21,6 +21,8 @@ from .store import COLORS, Store  # noqa: E402
 APP_ID = "io.github.davidnsousa.qfm"
 FREQUENT_COUNT = 5   # folders listed under Frequent in the sidebar
 PREVIEW_DELAY = 80   # ms the selection must settle before the preview loads
+SIDE_MIN = 200       # px: the narrowest the preview can be dragged (options["preview_min"])
+HANDLE = 6           # px: the grab strip just inside the preview's left edge
 FILTER_HINT = "Type to filter this column  ·  Enter: search all folders below  ·  ↓: go to the matches  ·  Esc: close"
 PATH_HINT = "Type a path  ·  Tab: complete a folder name  ·  Enter: go there  ·  Esc: back"
 # Keys that open the context menu besides Menu and Shift+F10: newer Lenovo (and other)
@@ -79,6 +81,88 @@ def icon_button(icon_name, tooltip, toggle=False):
     button.set_relief(Gtk.ReliefStyle.NONE)
     button.set_can_focus(False)
     return button
+
+
+class ColumnsAndSide(Gtk.Box):
+    """The columns, then the side panel (preview, search, Options…). The columns get the width
+    they need, in whole columns, while the side panel keeps at least options["preview_min"];
+    past that they scroll. The side panel takes the rest. Hidden, it leaves the rest empty.
+    Dragging the line between them sets preview_min: while dragging the line follows the
+    pointer, and on release it settles on whole columns."""
+
+    def __init__(self, view, side, store):
+        super().__init__()
+        self.view, self.side, self.store = view, side, store
+        self.options = store.options
+        self.dragging = False
+        self.pack_start(view, False, False, 0)
+        self.pack_start(side, False, False, 0)
+        self.handle = Gtk.EventBox(visible_window=True, tooltip_text="Drag to change the preview's width")
+        self.handle.add_events(Gdk.EventMask.BUTTON_PRESS_MASK | Gdk.EventMask.BUTTON_RELEASE_MASK
+                               | Gdk.EventMask.BUTTON1_MOTION_MASK)
+        self.handle.connect("realize", lambda h: h.get_window().set_cursor(
+            Gdk.Cursor.new_from_name(h.get_display(), "col-resize")))
+        self.handle.connect("button-press-event", self._on_press)
+        self.handle.connect("motion-notify-event", self._on_motion)
+        self.handle.connect("button-release-event", self._on_release)
+        self.pack_start(self.handle, False, False, 0)
+        side.connect("notify::visible", lambda side, _: self.handle.set_visible(side.get_visible()))
+
+    def _preview_min(self, width):
+        return max(SIDE_MIN, min(int(self.options["preview_min"]),
+                                 width - column_width(self.options)))
+
+    def do_get_preferred_width(self):
+        smallest = column_width(self.options) + (SIDE_MIN if self.side.get_visible() else 0)
+        return smallest, smallest
+
+    def do_size_allocate(self, alloc):
+        Gtk.Widget.set_allocation(self, alloc)
+        step = column_width(self.options)
+        shown = self.side.get_visible()
+        room = alloc.width - (self._preview_min(alloc.width) if shown else 0)
+        _, wanted = self.view.get_preferred_width()
+        width = min(wanted, room if self.dragging else max(step, room // step * step))
+        part = Gdk.Rectangle()
+        part.x, part.y, part.width, part.height = alloc.x, alloc.y, width, alloc.height
+        self.view.size_allocate(part)
+        if shown:
+            part = Gdk.Rectangle()
+            part.x, part.y = alloc.x + width, alloc.y
+            part.width, part.height = alloc.width - width, alloc.height
+            self.side.size_allocate(part)
+            part = Gdk.Rectangle()
+            part.x, part.y, part.width, part.height = alloc.x + width, alloc.y, HANDLE, alloc.height
+            self.handle.size_allocate(part)
+
+    def do_draw(self, cr):
+        for child in self.get_children():   # Gtk.Box's own drawing expects its own allocating
+            self.propagate_draw(child, cr)
+        return False
+
+    def _on_press(self, handle, event):
+        if event.button != 1:
+            return False
+        self.dragging = True
+        return True
+
+    def _on_motion(self, handle, event):
+        if not self.dragging:
+            return False
+        alloc = self.get_allocation()
+        x = handle.get_allocation().x - alloc.x + event.x      # the pointer, from our left edge
+        self.options["preview_min"] = max(SIDE_MIN, min(int(alloc.width - x),
+                                                        alloc.width - column_width(self.options)))
+        self.queue_resize()
+        return True
+
+    def _on_release(self, handle, event):
+        if not self.dragging:
+            return False
+        self.dragging = False
+        self.store.save_options()
+        self.queue_resize()
+        return True
 
 
 class Window(Gtk.ApplicationWindow):
@@ -190,15 +274,11 @@ class Window(Gtk.ApplicationWindow):
         self.side.add_named(self._options_page(), "options")
         self.side.add_named(self._actions_page(), "actions")
         self.side.add_named(self._commands_page(), "commands")
-        self.inner = Gtk.Paned()
-        self.inner.pack1(self.view, True, False)
-        self.inner.pack2(self.side, False, False)
+        self.inner = ColumnsAndSide(self.view, self.side, self.store)
         self.outer = Gtk.Paned()
         self.outer.pack1(self.sidebar_scroller, False, False)
         self.outer.pack2(self.inner, True, False)
         self.outer.set_position(options["sidebar_width"])
-        self._pane_placed = False
-        self.inner.connect("size-allocate", self._place_pane)
 
         # status bar: what's selected | messages / item count
         status = Gtk.Box(spacing=12)
@@ -241,11 +321,6 @@ class Window(Gtk.ApplicationWindow):
         self._quiet_toggles = False
         self.sidebar_scroller.set_visible(self.options["sidebar"])
         self.side.set_visible(self.options["preview"])
-
-    def _place_pane(self, paned, alloc):
-        if not self._pane_placed and alloc.width > 1:
-            self._pane_placed = True
-            paned.set_position(max(200, alloc.width - self.options["preview_width"]))
 
     # -- navigation ----------------------------------------------------------
 
@@ -1267,19 +1342,6 @@ class Window(Gtk.ApplicationWindow):
             check = Gtk.CheckButton(label=label, active=key in self.options["details"])
             check.connect("toggled", lambda b, k=key: self._toggle_detail(k, b.get_active()))
             box.pack_start(check, False, False, 0)
-        heading("Panels")
-        fit = Gtk.CheckButton(label="Fit to the window, no scrolling", active=self.options["fit_columns"])
-        most = Gtk.Box(spacing=6, margin_start=24, sensitive=self.options["fit_columns"])
-        most.pack_start(Gtk.Label(label="At most"), False, False, 0)
-        count = Gtk.SpinButton.new_with_range(1, 9, 1)
-        count.set_value(self.options["max_columns"])
-        count.connect("value-changed", lambda b: self._set_option("max_columns", b.get_value_as_int()))
-        most.pack_start(count, False, False, 0)
-        most.pack_start(Gtk.Label(label="panels"), False, False, 0)
-        fit.connect("toggled", lambda b: (most.set_sensitive(b.get_active()),
-                                          self._set_option("fit_columns", b.get_active())))
-        box.pack_start(fit, False, False, 0)
-        box.pack_start(most, False, False, 0)
         heading("Show")
         self.hidden_check = Gtk.CheckButton(label="Hidden files (Ctrl+H)", active=self.options["show_hidden"])
         self.hidden_check.connect("toggled", lambda b: self._set_option("show_hidden", b.get_active()))
@@ -1584,8 +1646,6 @@ class Window(Gtk.ApplicationWindow):
         self.options.update(window_width=width, window_height=height)
         if self.sidebar_scroller.get_visible():
             self.options["sidebar_width"] = self.outer.get_position()
-        if self.side.get_visible():
-            self.options["preview_width"] = self.inner.get_allocated_width() - self.inner.get_position()
         self.store.save_options()
         return False
 

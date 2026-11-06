@@ -25,8 +25,6 @@ DEFAULT_OPTIONS = {
     "sort": "name",          # name, size, modified, type
     "descending": False,
     "details": [],           # extra columns shown: type, size, modified, created
-    "fit_columns": True,     # the shown columns split the width (at most max_columns); False: they scroll
-    "max_columns": 3,
     "thumbnails": False,     # pictures of images, PDFs, models… in the columns (bigger rows)
     "preview": True,
     "folder_thumbnails": True,  # the preview of a folder shows thumbnails of what's in it
@@ -36,7 +34,7 @@ DEFAULT_OPTIONS = {
     "window_width": 1280,
     "window_height": 520,
     "sidebar_width": 190,
-    "preview_width": 380,
+    "preview_min": 300,        # px the preview keeps when the columns need room (drag the line before it)
     "archive_format": ".zip",  # last format picked in Compress…
     "window_mode": "dialog",   # dialog: floats, Esc closes, closes after opening or a drag out; normal: a regular window
     "default_fm": False,       # qfm opens folders and answers "Show in folder" (see fm1.py)

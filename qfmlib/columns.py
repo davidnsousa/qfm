@@ -191,6 +191,10 @@ def sort_entries(items, field, descending, folder_size=None):
 class Column(Gtk.Overlay):
     """One folder's list. Talks to its MillerView for everything beyond itself."""
 
+    def do_get_preferred_width(self):
+        width = column_width(self.view.options)   # every column the same width, whatever's in it
+        return width, width
+
     def __init__(self, view, path, archive_path=None, inner=None):
         super().__init__()
         self.view = view
@@ -471,7 +475,7 @@ class Column(Gtk.Overlay):
         shown = self.view.options["details"]
         for key, column in self.details.items():
             column.set_visible(key in shown)
-        self.set_size_request(-1 if self.view.fit else column_width(self.view.options), -1)
+        self.set_size_request(column_width(self.view.options), -1)
         self._size_folders()
 
     def icon_for(self, e):
@@ -817,7 +821,8 @@ class MillerView(Gtk.ScrolledWindow):
 
     def __init__(self, window):
         super().__init__(hscrollbar_policy=Gtk.PolicyType.AUTOMATIC,
-                         vscrollbar_policy=Gtk.PolicyType.NEVER)
+                         vscrollbar_policy=Gtk.PolicyType.NEVER,
+                         propagate_natural_width=True)   # asks for all its columns' width
         self.window = window
         self.store = window.store
         self.options = window.store.options
@@ -833,8 +838,7 @@ class MillerView(Gtk.ScrolledWindow):
         self.drag_outcome = None  # during a drag out: "failed" (cancelled/refused), "here" (dropped onto qfm)
         self.box = Gtk.Box()
         self.add(self.box)
-        # Stands in for the next column while the focused one has none (a file is
-        # selected), so the row keeps its width and nothing slides while moving up/down
+        # Stands in for a selected folder's column until it opens (see _layout)
         self.placeholder = Gtk.Box()
         self.placeholder.pack_start(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL), False, False, 0)
         self.placeholder_space = Gtk.Box()
@@ -885,40 +889,19 @@ class MillerView(Gtk.ScrolledWindow):
         """The rows' pictures: 16 px, or 40 with thumbnails (big enough to see what's in them)."""
         return 40 if self.options["thumbnails"] else 16
 
-    @property
-    def fit(self):
-        return bool(self.options["fit_columns"])
-
     def _layout(self):
-        """Scrolling: every column at its width, the placeholder after the focused one when it
-        has no next column. Fitting: the focused column, the columns before it and the slot after
-        it, at most max_columns, splitting the width; the others hidden until navigated to. The
-        slot (the next column, or the placeholder while a folder's column is about to open) is
-        counted even when empty, so the columns before don't change when moving between files and
-        folders: with a file selected, they just share the width."""
-        fit = self.fit
-        self.set_policy(Gtk.PolicyType.NEVER if fit else Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.NEVER)
-        self.box.set_homogeneous(fit)
+        """Every column at its width, scrolling sideways when they don't fit (the preview takes
+        the rest of the window, see app.py). While a selected folder's column is about to open,
+        the placeholder holds its place, so the preview doesn't widen and shrink back."""
         focused, has_next = self.focused_column, self.focus_index + 1 < len(self.columns)
-        if fit:
-            most = max(1, int(self.options["max_columns"]))
-            opening = (focused is not None and focused.selected is not None
-                       and focused.selected.browsable and not focused.selected.container
-                       and len(focused.marked) <= 1)
-            slot = most > 1 and (has_next or opening)
-            first = max(0, self.focus_index + (2 if most > 1 else 1) - most)
-            last = self.focus_index + 1 if slot else self.focus_index
-        else:
-            slot, first, last = focused is not None, 0, len(self.columns)
-        for prop in ("expand", "fill"):
-            self.box.child_set_property(self.placeholder, prop, fit)
+        opening = (focused is not None and focused.selected is not None
+                   and focused.selected.browsable and not focused.selected.container
+                   and len(focused.marked) <= 1)
         for i, column in enumerate(self.columns):
-            for prop in ("expand", "fill"):
-                self.box.child_set_property(column, prop, fit)
-            column.set_visible(first <= i <= last)
-            column.separator.set_visible(i > first)
-        self.placeholder_space.set_size_request(-1 if fit else column_width(self.options), -1)
-        self.placeholder.set_visible(slot and not has_next)
+            column.separator.set_visible(i > 0)
+        self.placeholder_space.set_size_request(column_width(self.options), -1)
+        self.placeholder.set_visible(opening and not has_next)
+        self.queue_resize()
 
     def go_to(self, path, select=None):
         """Show the folder path (columns from ~ or / down to it), focused.
@@ -1091,7 +1074,7 @@ class MillerView(Gtk.ScrolledWindow):
     def _reveal(self):
         """Scroll so the target column (and the one after it) are in view."""
         column = self._reveal_target
-        if self.fit or column not in self.columns:
+        if column not in self.columns:
             return False
         alloc = column.get_allocation()
         if alloc.width <= 1:

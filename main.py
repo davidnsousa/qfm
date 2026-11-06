@@ -11,7 +11,7 @@ usage:
 
 install / update: run ./install.sh from the source folder
 
-Options (gear button, Ctrl+,): sorting, columns and panels; a quick dialog (floats, Esc
+Options (gear button, Ctrl+,): sorting, columns; a quick dialog (floats, Esc
 closes it, closes after opening a file or dragging files out to another app) or a normal
 window; and qfm as the default file manager (folders, "Show in folder").
 Questions (names, confirmations, folders, apps) appear in a bar above the status bar.
