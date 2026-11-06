@@ -84,6 +84,7 @@ def launch(win, app, entries):
                 raise
             run_in_terminal(app, [f.get_path() for f in files])
         win.flash(f"Opened {what(entries)} with {app.get_display_name()}")
+        win.used([e.archive or e.path for e in entries])
         win.close_after_open()
     except GLib.Error as err:
         win.flash(f"Could not open {what(entries)}: {err.message}", error=True)
@@ -123,6 +124,7 @@ def open_terminal(win, folder):
     except GLib.Error as err:
         return win.flash(f"Could not open a terminal: {err.message}", error=True)
     win.flash(f"Opened a terminal in {folder}")
+    win.used([folder])
     win.close_after_open()
 
 
@@ -183,6 +185,7 @@ def run_program(win, entry, terminal=False):
     except GLib.Error as err:
         return win.flash(f"Could not run {entry.display}: {err.message}", error=True)
     win.flash(f"Running {entry.display}" + (" in a terminal" if terminal else ""))
+    win.used([entry.path])
     win.close_after_open()
 
 

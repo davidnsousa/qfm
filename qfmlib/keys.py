@@ -11,7 +11,7 @@ SHORTCUTS = [
         ("Ctrl+F / 🔍 button", "filter the column; Enter searches everything below it"),
         ("Alt+← / Alt+→ (mouse back / forward)", "back / forward through the places you jumped to"),
         ("Ctrl+B", "show / focus / hide the bookmarks sidebar"),
-        ("Delete / × / right-click (in the sidebar)", "remove the selected bookmark"),
+        ("Delete / × / right-click (in the sidebar)", "remove the selected bookmark or Frequent folder"),
     ]),
     ("Select", [
         ("Shift+↑ ↓ / Shift+click", "extend the selection"),

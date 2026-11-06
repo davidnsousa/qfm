@@ -19,6 +19,7 @@ from .search import SearchPane  # noqa: E402
 from .store import COLORS, Store  # noqa: E402
 
 APP_ID = "io.github.davidnsousa.qfm"
+FREQUENT_COUNT = 5   # folders listed under Frequent in the sidebar
 PREVIEW_DELAY = 80   # ms the selection must settle before the preview loads
 FILTER_HINT = "Type to filter this column  ·  Enter: search all folders below  ·  ↓: go to the matches  ·  Esc: close"
 PATH_HINT = "Type a path  ·  Tab: complete a folder name  ·  Enter: go there  ·  Esc: back"
@@ -449,6 +450,21 @@ class Window(Gtk.ApplicationWindow):
             self._closing = True
             GLib.timeout_add(150, lambda: self.close() and False)
 
+    def used(self, paths):
+        """Files or folders at paths were opened or dragged out: their folders count for
+        Frequent in the sidebar (a folder opened in an app or a terminal counts itself)."""
+        if not self.options["frequent"]:
+            return
+        folders = []
+        for path in paths:
+            folder = path if os.path.isdir(path) else os.path.dirname(path)
+            if (folder and not trash.in_trash(folder)
+                    and folder != archive.TEMP_DIR and not folder.startswith(archive.TEMP_DIR + os.sep)):
+                folders.append(folder)
+        if folders:
+            self.store.use_folders(folders)
+            self.rebuild_sidebar()
+
     def _save_soon(self):
         """Save the options a moment after the last change (navigation, panes)."""
         if self._save_timer:
@@ -638,6 +654,10 @@ class Window(Gtk.ApplicationWindow):
             hint.add(label)
             hint.section, hint.path = "bookmarks", None
             self.sidebar.add(hint)
+        if self.options["frequent"]:
+            leave_out = {HOME, "/", APPLICATIONS, trash.FILES, *self.store.bookmarks}
+            for path in self.store.frequent_folders(FREQUENT_COUNT, leave_out):
+                self._sidebar_row(os.path.basename(path) or path, path, None, "frequent")
         self.sidebar.show_all()
 
     def _sidebar_row(self, name, path, icon_name, section):
@@ -656,13 +676,14 @@ class Window(Gtk.ApplicationWindow):
                 row.set_tooltip_text(short_path(path))
         box.pack_start(image, False, False, 0)
         box.pack_start(Gtk.Label(label=name, xalign=0, ellipsize=Pango.EllipsizeMode.END), True, True, 0)
-        if section == "bookmarks":
+        if section in ("bookmarks", "frequent"):
             remove = Gtk.Button.new_from_icon_name("window-close-symbolic", Gtk.IconSize.MENU)
             remove.set_relief(Gtk.ReliefStyle.NONE)
             remove.set_can_focus(False)
-            remove.set_tooltip_text("Remove this bookmark (Delete)")
+            remove.set_tooltip_text("Remove this bookmark (Delete)" if section == "bookmarks" else
+                                    "Remove from Frequent (Delete) - it comes back if you keep using it")
             remove.get_style_context().add_class("qfm-unbookmark")
-            remove.connect("clicked", lambda *_: self.remove_bookmark(path))
+            remove.connect("clicked", lambda *_: self.remove_sidebar_row(section, path))
             box.pack_start(remove, False, False, 0)
         row.add(box)
         self.sidebar.add(row)
@@ -757,38 +778,59 @@ class Window(Gtk.ApplicationWindow):
 
     def _on_sidebar_key(self, listbox, event):
         row = listbox.get_selected_row() or listbox.get_focus_child()
-        if event.keyval == Gdk.KEY_Delete and row is not None and row.section == "bookmarks" and row.path:
-            self.remove_bookmark(row.path, refocus=True)
+        if (event.keyval == Gdk.KEY_Delete and row is not None and row.section in ("bookmarks", "frequent")
+                and row.path):
+            self.remove_sidebar_row(row.section, row.path, refocus=True)
             return True
         if event.keyval in (Gdk.KEY_Escape, Gdk.KEY_Right):
             self.focus_columns()
             return True
         return False
 
-    def remove_bookmark(self, path, refocus=False):
-        """Take path off the bookmarks (the sidebar's ×, its right-click menu, Delete there)."""
-        if path not in self.store.bookmarks:
+    def remove_sidebar_row(self, section, path, refocus=False):
+        """A bookmark or a Frequent folder taken off the sidebar (its ×, its right-click menu,
+        Delete there). A Frequent folder's score starts again from zero."""
+        if section == "bookmarks" and path not in self.store.bookmarks:
             return
-        index = next((r.get_index() for r in self.sidebar.get_children() if getattr(r, "path", None) == path), 0)
-        self.store.toggle_bookmark(path)
+        index = next((r.get_index() for r in self.sidebar.get_children()
+                      if getattr(r, "path", None) == path and r.section == section), 0)
+        if section == "bookmarks":
+            self.store.toggle_bookmark(path)
+        else:
+            self.store.forget_frequent(path)
         self.rebuild_sidebar()
         if refocus:
             rows = self.sidebar.get_children()
             rows[min(index, len(rows) - 1)].grab_focus()
-        self.flash(f"Removed bookmark {short_path(path)}")
+        self.flash(f"Removed bookmark {short_path(path)}" if section == "bookmarks" else
+                   f"Removed {short_path(path)} from Frequent")
+
+    def remove_bookmark(self, path, refocus=False):
+        self.remove_sidebar_row("bookmarks", path, refocus)
 
     def _on_sidebar_button(self, listbox, event):
-        """Right-click on a bookmark: Open, Remove Bookmark."""
+        """Right-click on a bookmark: Open, Remove Bookmark. On a Frequent folder: Open,
+        Bookmark, Remove from Frequent."""
         if event.type != Gdk.EventType.BUTTON_PRESS or event.get_button()[1] != 3:
             return False
         row = listbox.get_row_at_y(int(event.y))
-        if row is None or getattr(row, "section", None) != "bookmarks" or not row.path:
+        if row is None or getattr(row, "section", None) not in ("bookmarks", "frequent") or not row.path:
             return False
         menu = Gtk.Menu()
         menu.attach_to_widget(listbox, None)
         sink = actions.MenuSink(menu)
         sink.item("Open", lambda: self.go_to(row.path), "folder-open-symbolic")
-        sink.item("Remove Bookmark", lambda: self.remove_bookmark(row.path), "non-starred-symbolic", Gdk.KEY_Delete)
+        if row.section == "bookmarks":
+            sink.item("Remove Bookmark", lambda: self.remove_bookmark(row.path), "non-starred-symbolic",
+                      Gdk.KEY_Delete)
+        else:
+            def bookmark(path=row.path):
+                self.store.toggle_bookmark(path)
+                self.rebuild_sidebar()
+                self.flash(f"Bookmarked {short_path(path)}")
+            sink.item("Bookmark", bookmark, "starred-symbolic")
+            sink.item("Remove from Frequent", lambda: self.remove_sidebar_row("frequent", row.path),
+                      "edit-clear-symbolic", Gdk.KEY_Delete)
         menu.show_all()
         menu.popup_at_pointer(event)
         return True
@@ -1247,6 +1289,20 @@ class Window(Gtk.ApplicationWindow):
         box.pack_start(thumbnails, False, False, 0)
         note("Pictures of images, PDFs and 3D models, shared with other file managers' "
              "thumbnail cache. Videos too once a video thumbnailer (ffmpegthumbnailer) is installed.")
+        frequent = Gtk.CheckButton(label="Frequent folders in the sidebar", active=self.options["frequent"])
+        frequent.connect("toggled", lambda b: (self._set_option("frequent", b.get_active()),
+                                               self.rebuild_sidebar()))
+        box.pack_start(frequent, False, False, 0)
+        note(f"The {FREQUENT_COUNT} folders you open files in most, often and lately. "
+             "Dragging files out counts too. × removes one until you've used it again a few times.")
+        clear = Gtk.Button(label="Clear the history", halign=Gtk.Align.START, margin_start=24)
+
+        def clear_history(*_):
+            self.store.forget_frequent()
+            self.rebuild_sidebar()
+            self.flash("Frequent folders cleared")
+        clear.connect("clicked", clear_history)
+        box.pack_start(clear, False, False, 0)
         heading("Preview")
         tabs = Gtk.RadioButton(label="Tabs: Preview and Properties", active=self.options["preview_layout"] == "tabs")
         single = Gtk.RadioButton(label="One panel, properties below", group=tabs,

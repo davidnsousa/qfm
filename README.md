@@ -14,6 +14,9 @@ A keyboard-driven file manager for Linux (GTK3) with Miller columns.
   after opening something. It can also run as a normal window.
 - Places (Home, Applications, Computer, Trash), removable drives, and bookmarks (× or
   right-click to remove them).
+- Frequent: the 5 folders you open files in most, often and lately (dragging files out
+  counts too). × removes one until you use it again a few times. Can be turned off or
+  cleared in Options.
 - Alt+← and Alt+→ (or the mouse's back and forward buttons) go back and forward through
   the places you jumped to.
 - Git repositories have their own folder icon, and the status bar shows their branch.
@@ -89,7 +92,7 @@ qfm PATH      # open at PATH (a file is selected in its folder)
 If qfm is already open, the same window is used. Press F1 for the keyboard shortcuts, or
 run `qfm --help`.
 
-Options, bookmarks, folder colours and your commands are stored in `~/.config/qfm/`.
+Options, bookmarks, folder colours, frequent folders and your commands are stored in `~/.config/qfm/`.
 
 ## License
 

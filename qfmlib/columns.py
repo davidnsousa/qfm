@@ -733,6 +733,7 @@ class Column(Gtk.Overlay):
         outcome, self.view.drag_outcome = self.view.drag_outcome, None
         self.view.dragging = None
         if outcome is None:       # neither cancelled nor dropped onto qfm itself
+            self.view.window.used([e.archive or e.path for e in self.marked])
             self.view.window.close_after_open()
 
     def _on_drag_data_get(self, tree, context, data, info, time_):

@@ -1,6 +1,7 @@
-"""Bookmarks, folder colors and options, kept as JSON files in ~/.config/qfm/."""
+"""Bookmarks, folder colors, options and frequent folders, kept as JSON files in ~/.config/qfm/."""
 import json
 import os
+import time
 
 CONFIG_DIR = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "qfm")
 
@@ -15,7 +16,11 @@ COLORS = {
     "gray": "#9399b2",
 }
 
+FREQUENT_HALF_LIFE = 14 * 86400   # a use counts half as much after two weeks
+FREQUENT_MIN = 1.5                 # the score a folder needs to be listed (two recent uses)
+
 DEFAULT_OPTIONS = {
+    "frequent": True,        # the sidebar lists the folders you open things in most (Frequent)
     "show_hidden": False,
     "sort": "name",          # name, size, modified, type
     "descending": False,
@@ -65,6 +70,9 @@ class Store:
         self.colors = {p: c for p, c in _load("colors.json", {}).items() if c in COLORS}
         from .commands import valid
         self.commands = [c for c in _load("commands.json", []) if valid(c)]   # your commands (commands.py)
+        # folder -> [score, when last used]: opening files in it, dragging them out (frecency)
+        self.frequent = {p: v for p, v in _load("frequent.json", {}).items()
+                         if isinstance(v, list) and len(v) == 2}
 
     def save_commands(self):
         _save("commands.json", self.commands)
@@ -87,12 +95,45 @@ class Store:
             return new + path[len(old):] if path == old or path.startswith(old + os.sep) else path
         bookmarks = [moved(p) for p in self.bookmarks]
         colors = {moved(p): c for p, c in self.colors.items()}
+        frequent = {moved(p): v for p, v in self.frequent.items()}
+        if frequent != self.frequent:
+            self.frequent = frequent
+            _save("frequent.json", frequent)
         if bookmarks != self.bookmarks:
             self.bookmarks = bookmarks
             _save("bookmarks.json", bookmarks)
         if colors != self.colors:
             self.colors = colors
             _save("colors.json", colors)
+
+    @staticmethod
+    def _decayed(value, now):
+        score, when = value
+        return score * 0.5 ** (max(0, now - when) / FREQUENT_HALF_LIFE)
+
+    def use_folders(self, folders):
+        """Something in each of folders was opened or dragged out: one use each."""
+        now = time.time()
+        for folder in dict.fromkeys(folders):
+            self.frequent[folder] = [self._decayed(self.frequent.get(folder, [0, now]), now) + 1, now]
+        # forget folders whose uses have faded away
+        self.frequent = {p: v for p, v in self.frequent.items() if self._decayed(v, now) >= 0.05}
+        _save("frequent.json", self.frequent)
+
+    def frequent_folders(self, count, leave_out=()):
+        """The count folders used most (often and lately) that still exist, best first."""
+        now = time.time()
+        ranked = sorted(((self._decayed(v, now), p) for p, v in self.frequent.items()), reverse=True)
+        return [p for score, p in ranked if score >= FREQUENT_MIN and p not in leave_out
+                and os.path.isdir(p)][:count]
+
+    def forget_frequent(self, path=None):
+        """Start path's score again from zero (None: all of them)."""
+        if path is None:
+            self.frequent = {}
+        else:
+            self.frequent.pop(path, None)
+        _save("frequent.json", self.frequent)
 
     def set_color(self, path, color):
         """color: a COLORS name, or None to clear it."""

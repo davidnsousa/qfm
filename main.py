@@ -17,7 +17,7 @@ window; and qfm as the default file manager (folders, "Show in folder").
 Questions (names, confirmations, folders, apps) appear in a bar above the status bar.
 Drag files out of a column into other apps, or onto a folder in qfm. Archives browse like
 folders (read-only). Videos and audio play in the preview. F1 in qfm lists every key.
-Bookmarks, folder colors and options are kept in ~/.config/qfm/.
+Bookmarks, folder colors, frequent folders and options are kept in ~/.config/qfm/.
 
 keys:"""
 import os
