@@ -19,6 +19,11 @@ CSS = b"""
 .qfm-crumb-sep { color: alpha(@theme_fg_color, 0.4); }
 .qfm-column treeview.view:selected { background-color: alpha(@theme_selected_bg_color, 0.35); color: @theme_fg_color; }
 .qfm-column.active treeview.view:selected { background-color: @theme_selected_bg_color; color: @theme_selected_fg_color; }
+/* the column with the keyboard focus: outlined in the accent color (instead of the theme's focus ring);
+   the others keep a clear border of the same width, so nothing shifts when the focus moves */
+.qfm-column scrolledwindow { border: 1px solid transparent; }
+.qfm-column.active scrolledwindow { border-color: @theme_selected_bg_color; }
+.qfm-column treeview.view { outline-color: transparent; }
 .qfm-arrow { color: alpha(@theme_fg_color, 0.45); }
 .qfm-message { color: alpha(@theme_fg_color, 0.5); }
 .qfm-sidebar row { padding: 4px 10px; }
