@@ -287,6 +287,14 @@ install_deps() {
     echo "$hash" | sudo tee "$stamp" >/dev/null
 }
 
+save_installed_date() {
+    # The date of the commit installed, for the app's update check (not saved
+    # when this copy of the repository is not a git clone)
+    local source_dir="$1" state="$HOME/.local/state/$COMMAND_NAME" date
+    date="$(git -C "$source_dir" log -1 --format=%cI 2>/dev/null)" || return 0
+    mkdir -p "$state" && echo "$date" > "$state/installed" || warn "Could not save the installed version in $state"
+}
+
 next_steps() {
     cat <<EOF
 
@@ -325,6 +333,7 @@ main() {
     install_desktop_file
     setup_venv
     install_deps
+    save_installed_date "$source_dir"
     if [ -n "$restart_args" ]; then
         # back in the background, like the app menu starts it; open tabs reconnect
         [ "$restart_args" = "-" ] && restart_args=""

@@ -31,6 +31,7 @@ CSS = b"""
 .qfm-statusbar { padding: 3px 8px; border-top: 1px solid @borders; font-size: 9pt;
                  background-color: mix(@theme_bg_color, @theme_fg_color, 0.14); }
 .qfm-status-error { color: #ff7b63; }
+.qfm-update-notice { color: #f9e2af; }
 .qfm-preview-title { font-weight: bold; font-size: 12pt; }
 .qfm-preview-key { color: alpha(@theme_fg_color, 0.55); }
 .qfm-pane-heading { font-weight: bold; }

@@ -9,7 +9,7 @@ gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")  # else gi picks Gdk 4.0, which clashes with Gtk 3
 from gi.repository import Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
 
-from . import actions, archive, commands, fm1, media, style, trash  # noqa: E402
+from . import actions, archive, commands, fm1, media, style, trash, updates  # noqa: E402
 from .fileops import FileOps  # noqa: E402
 from .columns import APPLICATIONS, HOME, Entry, MillerView, column_width, describe, git_branch, human_date, human_size, short_path  # noqa: E402
 from .preview import GRID_LIMIT, Preview  # noqa: E402
@@ -289,6 +289,9 @@ class Window(Gtk.ApplicationWindow):
         status.pack_start(self.apps, False, False, 0)
         status.pack_start(self.status_left, True, True, 0)
         status.pack_start(self.status_right, False, False, 0)
+        self.update_notice = Gtk.Label(label="update available: git pull and run install.sh", no_show_all=True)
+        self.update_notice.get_style_context().add_class("qfm-update-notice")
+        status.pack_start(self.update_notice, False, False, 0)
         terminal = icon_button("utilities-terminal-symbolic", "Open a terminal here (F4)")
         terminal.get_style_context().add_class("qfm-app")
         terminal.connect("clicked", lambda *_: self.open_terminal_here())
@@ -1667,6 +1670,7 @@ class App(Gtk.Application):
             style.install()
             self.window = Window(self)
             self.window.start()
+            updates.start(lambda available: GLib.idle_add(self.window.update_notice.set_visible, available))
             if self.window.options["default_fm"]:
                 self.fm1.start(self.get_dbus_connection())
         if args:

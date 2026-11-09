@@ -80,8 +80,11 @@ cd qfm
 ./install.sh
 ```
 
-The installer asks for sudo and installs qfm in `/opt/qfm`. Run `./install.sh` again to
-update. Run `qfm --uninstall` to remove it.
+The installer asks for sudo and installs qfm in `/opt/qfm`. Run `qfm --uninstall` to remove it.
+
+qfm checks GitHub at start and then every hour, and says in the status bar when there is a
+newer version. To update, run `git pull` and then `./install.sh` again. The check needs an
+install made from a git clone.
 
 ## Usage
 
